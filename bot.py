@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import json
 import requests
 import discord
 import time
@@ -9,11 +10,11 @@ from discord.ext import commands
 from bs4 import BeautifulSoup
 from flask import Flask
 
-# --- WEB SERVER PENTRU RENDER (Gratuit 24/7) ---
+# --- SERVER WEB PENTRU RENDER (Gratuit 24/7) ---
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Botul este activ!"
+    return "Botul este activ și online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -27,112 +28,129 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await bot.tree.sync()
+    try:
+        await bot.tree.sync()
+    except Exception as e:
+        print(f"Eroare sync tree: {e}")
     print(f'Botul este pornit și conectat ca: {bot.user}')
 
 def get_products():
     url = "https://dailystore.me/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
     }
     
+    products = []
     try:
-        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=10)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # --- DEBUG: Trimite 2000 caractere din HTML în log-urile Render ---
-        raw_html = soup.prettify()
-        print("DEBUG_START_HTML")
-        print(raw_html[:2000]) # Primele 2000 caractere
-        print("DEBUG_END_HTML")
-        # ------------------------------------------------------------------
+        # Interogăm site-ul la secundă fără cache
+        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=12)
+        html = response.text
+        soup = BeautifulSoup(html, 'html.parser')
 
-        # Dacă lungimea e mică, înseamnă că ne-a blocat
-        if len(response.text) < 500:
-            print("AVERTISMENT: Pagina primită este prea scurtă. Probabil suntem blocați.")
-            return []
-
-        # ... (restul logicii rămâne la fel) ...
-        products = []
-        # (păstrează restul funcției get_products exact cum era anterior)
-        # ...
-        return products
-    except Exception as e:
-        print(f"Eroare: {e}")
-        return []   
-        products = []
-        seen_names = set()
-
-        # 1. Căutăm toate node-urile din HTML care conțin simbolul de preț $
-        price_nodes = soup.find_all(string=re.compile(r'\$\s*\d+|\d+\s*\$'))
-
-        for node in price_nodes:
-            # Urcăm în arborele HTML pentru a găsi containerul (cardul) produsului
-            card = node.parent
-            for _ in range(4):
-                if card and card.parent and card.parent.name not in ['body', 'html', 'main']:
-                    card = card.parent
-
-            if not card:
+        # --- METODA 1: Parsare din datele JSON interne (Next.js / React) ---
+        scripts = soup.find_all('script')
+        for s in scripts:
+            if not s.string:
                 continue
+            
+            # Căutăm blocurile de date JSON
+            if '__NEXT_DATA__' in str(s.get('id', '')) or 'props' in s.string or 'products' in s.string:
+                try:
+                    data = json.loads(s.string)
 
-            card_text = card.text.lower()
+                    def extract_recursive(obj):
+                        if isinstance(obj, dict):
+                            # Extragere nume, preț și stoc din dicționar
+                            name = obj.get('title') or obj.get('name') or obj.get('label')
+                            price = obj.get('price') or obj.get('cost') or obj.get('val') or obj.get('amount')
+                            stock = obj.get('stock') if 'stock' in obj else obj.get('quantity')
+                            is_out = obj.get('outOfStock') or obj.get('soldOut') or obj.get('isOutOfStock')
 
-            # --- FILTRARE STOC ---
-            if any(x in card_text for x in ["out of stock", "sold out", "stoc epuizat", "0 in stock", "0 left", "out-of-stock", "0 stoc"]):
-                continue
+                            if name and price is not None and isinstance(name, str) and len(name.strip()) > 1:
+                                in_stock = True
+                                # Filtrare stoc
+                                if stock is not None:
+                                    try:
+                                        if float(stock) <= 0:
+                                            in_stock = False
+                                    except:
+                                        pass
+                                if is_out is True:
+                                    in_stock = False
 
-            # --- EXTRAGERE PREȚ + ADĂUGARE 0.10$ ---
-            price_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', card.text)
-            if not price_match:
-                price_match = re.search(r'(\d+(?:\.\d+)?)\s*\$', card.text)
+                                if in_stock:
+                                    try:
+                                        p_val = float(price)
+                                        p_final = f"${(p_val + 0.10):.2f}"
+                                        
+                                        img_url = obj.get('image') or obj.get('img') or obj.get('imageUrl') or obj.get('thumbnail')
+                                        if img_url and img_url.startswith('/'):
+                                            img_url = f"https://dailystore.me{img_url}"
 
-            if not price_match:
-                continue
+                                        products.append({
+                                            "name": name.strip(),
+                                            "price": p_final,
+                                            "img": img_url
+                                        })
+                                    except:
+                                        pass
 
-            original_val = float(price_match.group(1))
-            new_val = original_val + 0.10
-            price_str = f"${new_val:.2f}"
+                            for v in obj.values():
+                                extract_recursive(v)
+                        elif isinstance(obj, list):
+                            for item in obj:
+                                extract_recursive(item)
 
-            # --- EXTRAGERE TITLU / NUME ---
-            name = None
-            for tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'b', 'a', 'p', 'span']:
-                for el in card.find_all(tag_name):
-                    t = el.text.strip()
-                    # Căutăm primul text scurt care nu conține preț sau cuvinte cheie de cumpărare
-                    if 2 < len(t) < 80 and '$' not in t and not any(k in t.lower() for k in ["stock", "buy", "cart", "adauga"]):
-                        name = t
-                        break
-                if name:
-                    break
+                    extract_recursive(data)
+                except Exception:
+                    pass
 
-            if not name:
-                continue
+        # --- METODA 2: Parsare din HTML (Fallback) ---
+        if not products:
+            price_nodes = soup.find_all(string=re.compile(r'\$\s*\d+|\d+\s*\$'))
+            for node in price_nodes:
+                card = node.parent
+                for _ in range(3):
+                    if card and card.parent and card.parent.name not in ['body', 'html']:
+                        card = card.parent
 
-            # Evităm duplicatele
-            if name in seen_names:
-                continue
-            seen_names.add(name)
+                if not card:
+                    continue
 
-            # --- EXTRAGERE IMAGINE ---
-            img = card.find('img')
-            img_url = None
-            if img:
-                src = img.get('src') or img.get('data-src') or img.get('srcset')
-                if src:
-                    src = src.split()[0]
-                    if src.startswith('/'):
-                        img_url = f"https://dailystore.me{src}"
-                    elif src.startswith('http'):
-                        img_url = src
+                card_text = card.text.lower()
+                if any(x in card_text for x in ["out of stock", "sold out", "stoc epuizat", "0 in stock", "0 left"]):
+                    continue
 
-            products.append({
-                "name": name,
-                "price": price_str,
-                "img": img_url
-            })
+                price_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', card.text)
+                if price_match:
+                    p_val = float(price_match.group(1)) + 0.10
+                    
+                    name_el = card.find(['h1', 'h2', 'h3', 'h4', 'strong', 'a', 'p'])
+                    name = name_el.text.strip() if name_el else None
 
-        return products[:15] # Returnăm maxim 15 produse găsite în stoc
+                    if name and '$' not in name and len(name) < 80:
+                        img_el = card.find('img')
+                        img_url = img_el.get('src') if img_el else None
+                        if img_url and img_url.startswith('/'):
+                            img_url = f"https://dailystore.me{img_url}"
+
+                        products.append({
+                            "name": name,
+                            "price": f"${p_val:.2f}",
+                            "img": img_url
+                        })
+
+        # Eliminăm duplicatele de nume
+        unique_products = []
+        seen = set()
+        for p in products:
+            if p["name"] not in seen and len(p["name"]) > 2:
+                seen.add(p["name"])
+                unique_products.append(p)
+
+        print(f"DEBUG: S-au extras {len(unique_products)} produse în stoc.")
+        return unique_products[:15]
 
     except Exception as e:
         print(f"Eroare scraping: {e}")
@@ -150,7 +168,7 @@ async def trimite_produse(target):
             description=f"**Preț:** {item['price']}", 
             color=0x00ff00
         )
-        # Anonimizăm imaginea (o găzduim temporar pe Discord CDN)
+        # Re-încărcare imagine pe CDN-ul Discord pentru anonimizare
         if item["img"]:
             try:
                 res = requests.get(item["img"], timeout=5)
@@ -163,21 +181,18 @@ async def trimite_produse(target):
                 pass
         await target.send(embed=embed)
 
-# Comanda !stock
 @bot.command(name="stock")
 async def stock_prefix(ctx):
     await ctx.send("🔍 Preluare stoc actualizat...")
     await trimite_produse(ctx)
 
-# Comanda /stock
 @bot.tree.command(name="stock", description="Afișează produsele în stoc")
 async def stock_slash(interaction: discord.Interaction):
     await interaction.response.defer()
     await interaction.followup.send("🔍 Preluare stoc actualizat...")
     await trimite_produse(interaction.followup)
 
-# --- START SERVER ȘI BOT ---
 if __name__ == "__main__":
     threading.Thread(target=run_web_server).start()
     bot.run(TOKEN)
-                
+                                        
