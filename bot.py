@@ -42,11 +42,20 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 intents = discord.Intents.default()
 intents.message_content = True
 
-# OPRIRE HELP DEFAULT PENTRU A PUTEA PUNE UNUL CUSTOM
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
-# --- LINK TICKET SETAT MANUAL ---
-TICKET_LINK = "https://discord.com/channels/1533357146823987392/1533400621464682546"
+# --- CONFIGURĂRI ȘI ID-URI TICKET ---
+CATEGORY_ID = 1533357146823987392  # Categoria unde se creează canalele de ticket
+TRANSCRIPT_CHANNEL_ID = 1535997796493041694  # Canalul unde se trimit transcripturile
+
+# ID-uri roluri/categorii pentru opțiuni și replace
+TICKET_ROLES = {
+    "nitro": 1534479829225832528,
+    "boost": 1534480275474612254,
+    "deco": 1534480089083936789,
+    "other": 1535562946107809883,
+    "replace": 1534625944017571941
+}
 
 @bot.event
 async def on_ready():
@@ -58,124 +67,112 @@ async def on_ready():
     print(f'Botul All-in-One este conectat ca: {bot.user}')
 
 # ==========================================
-# 1. PARSARE STOC (DAALYSTORE.ME)
+# 1. PARSARE STOC (CU DESCRIERE ȘI PREȚ)
 # ==========================================
-def parse_nextjs_data(html_text):
-    soup = BeautifulSoup(html_text, 'html.parser')
-    products = []
-    found_raw = []
-
-    script_tag = soup.find('script', id='__NEXT_DATA__')
-    if script_tag and script_tag.string:
-        try:
-            data = json.loads(script_tag.string)
-
-            def walk_json(obj):
-                if isinstance(obj, dict):
-                    name = obj.get('title') or obj.get('name') or obj.get('label')
-                    price = obj.get('price') or obj.get('cost') or obj.get('val') or obj.get('minPrice')
-                    stock = obj.get('stock') or obj.get('quantity') or obj.get('stock_count')
-                    is_out = obj.get('outOfStock', False) or obj.get('soldOut', False)
-
-                    if name and price is not None and isinstance(name, str) and len(name.strip()) > 1:
-                        in_stock = True
-                        if is_out is True:
-                            in_stock = False
-                        if stock is not None:
-                            try:
-                                if float(stock) <= 0:
-                                    in_stock = False
-                            except:
-                                pass
-
-                        if in_stock:
-                            found_raw.append((name.strip(), price))
-
-                    for v in obj.values():
-                        walk_json(v)
-                elif isinstance(obj, list):
-                    for item in obj:
-                        walk_json(item)
-
-            walk_json(data)
-        except Exception as e:
-            print(f"Eroare JSON: {e}")
-
-    for name, raw_price in found_raw:
-        try:
-            if isinstance(raw_price, (int, float)):
-                p_num = float(raw_price)
-            else:
-                match = re.search(r'(\d+(?:\.\d+)?)', str(raw_price))
-                p_num = float(match.group(1)) if match else 0.0
-
-            p_final = f"${(p_num + 0.10):.2f}"
-            products.append({"name": name, "price": p_final})
-        except:
-            pass
-
-    if not products:
-        raw_matches = re.findall(r'"(?:name|title)":"([^"]+)".*?"price":\s*([\d\.]+)', html_text)
-        for name, price in raw_matches:
-            if len(name) < 80 and '$' not in name:
-                try:
-                    p_num = float(price) + 0.10
-                    products.append({"name": name, "price": f"${p_num:.2f}"})
-                except:
-                    pass
-
-    seen = set()
-    unique_products = []
-    for p in products:
-        if p["name"] not in seen and len(p["name"]) > 1:
-            if not any(bad in p["name"].lower() for bad in ["select", "choose", "cart", "checkout"]):
-                seen.add(p["name"])
-                unique_products.append(p)
-
-    return unique_products
-
 def get_products():
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
     res = requests.get("https://dailystore.me/", headers=headers, params={"t": time.time()}, timeout=12)
-    if res.status_code == 200:
-        return parse_nextjs_data(res.text)
-    else:
+    if res.status_code != 200:
         raise Exception(f"Site-ul a returnat codul HTTP {res.status_code}")
+
+    soup = BeautifulSoup(res.text, 'html.parser')
+    products = []
+    seen = set()
+
+    script_tag = soup.find('script', id='__NEXT_DATA__')
+    if script_tag and script_tag.string:
+        try:
+            data = json.loads(script_tag.string)
+            def walk_json(obj):
+                if isinstance(obj, dict):
+                    name = obj.get('title') or obj.get('name') or obj.get('label')
+                    price = obj.get('price') or obj.get('cost') or obj.get('val') or obj.get('minPrice')
+                    description = obj.get('description') or obj.get('desc') or obj.get('details') or ""
+                    is_out = obj.get('outOfStock', False) or obj.get('soldOut', False)
+
+                    if name and price is not None and isinstance(name, str) and len(name.strip()) > 1 and not is_out:
+                        try:
+                            p_num = float(re.search(r'(\d+(?:\.\d+)?)', str(price)).group(1))
+                            p_final = f"${(p_num + 0.10):.2f}"
+                            clean_name = name.strip()
+                            clean_desc = str(description).strip() if description else "Fără descriere disponibilă"
+                            
+                            if clean_name not in seen:
+                                seen.add(clean_name)
+                                products.append({
+                                    "name": clean_name, 
+                                    "price": p_final,
+                                    "description": clean_desc
+                                })
+                        except:
+                            pass
+                    for v in obj.values():
+                        walk_json(v)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        walk_json(item)
+            walk_json(data)
+        except:
+            pass
+
+    if not products:
+        raw_matches = re.findall(r'"(?:name|title)":"([^"]+)".*?"price":\s*([\d\.]+)', res.text)
+        for name, price in raw_matches:
+            if len(name) < 80 and '$' not in name and name not in seen:
+                try:
+                    p_num = float(price) + 0.10
+                    seen.add(name)
+                    products.append({
+                        "name": name, 
+                        "price": f"${p_num:.2f}",
+                        "description": "Fără descriere disponibilă"
+                    })
+                except:
+                    pass
+
+    return products
 
 async def trimite_produse(target, cautare=None):
     try:
         items = get_products()
         if not items:
-            await target.send(f"❌ Nu am găsit niciun produs pe stoc momentan.\n\n🎫 **Vrei să plasezi o comandă sau să pui o întrebare?**\nDeschide un ticket aici: {TICKET_LINK}")
+            await target.send(f"❌ Nu am putut extrage produse de pe site momentan.\n\n🎫 **Vrei să comanzi?** Folosește panoul de tickete!")
             return
 
         if cautare:
-            termen = cautare.lower().strip()
-            items = [p for p in items if termen in p["name"].lower()]
+            termeni = cautare.lower().strip().split()
+            filtered_items = []
+            for p in items:
+                p_lower = p["name"].lower()
+                if all(t in p_lower for t in termeni):
+                    filtered_items.append(p)
+            
+            items = filtered_items
             if not items:
-                await target.send(f"❌ Produsul **\"{cautare}\"** nu a fost găsit în stoc.\n\n🎫 **Vrei să întrebi de stoc sau să precomanzi?**\nDeschide un ticket aici: {TICKET_LINK}")
+                await target.send(f"❌ Nu am găsit niciun produs care să corespundă cu **\"{cautare}\"**.")
                 return
 
-        items_to_display = items[:15]
+        items_to_display = items[:10]
         titlu_embed = f"🔍 Căutare stoc: **{cautare}**" if cautare else "🛒 **STOC PRODUSE DISPONIBILE**"
 
         embed = discord.Embed(
             title=titlu_embed,
-            description=f"Am găsit **{len(items)}** produse.\n\n🎫 **CUM CUMPĂR?**\n[Deschide un ticket apăsând AICI]({TICKET_LINK}) și scrie-ne ce vrei să comanzi!\n\n",
+            description=f"Am găsit **{len(items)}** produse potrivite.\n\n🎫 Deschide un ticket din panou pentru a comanda!",
             color=0x2b2d31
         )
 
         for idx, item in enumerate(items_to_display, 1):
-            embed.add_field(
-                name=f"{idx}. {item['name'][:150]}",
-                value=f"💵 **Preț:** `{item['price']}`",
-                inline=False
-            )
+            desc_curat = item['description']
+            if len(desc_curat) > 100:
+                desc_curat = desc_curat[:97] + "..."
+                
+            valoare_camp = f"💵 **Preț:** `{item['price']}`\n📝 **Descriere:** {desc_curat}"
+            embed.add_field(name=f"{idx}. {item['name'][:150]}", value=valoare_camp, inline=False)
 
         embed.set_footer(text="Toate prețurile includ comisionul de +0.10$")
-        await target.send(embed=embed)
+        await target.send(embed=embed, view=TicketKingPanelView())
 
     except Exception as err:
         await target.send(f"⚠️ Eroare la preluarea stocului: `{err}`")
@@ -190,7 +187,125 @@ async def stock_slash(interaction: discord.Interaction, produs: str = None):
     await trimite_produse(interaction.followup, produs)
 
 # ==========================================
-# 2. CALCULATOR COMISIOANE (!fee)
+# 2. SISTEM DE TICKETE STIL "TICKET KING"
+# ==========================================
+class TicketControlView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(label="🔒 Închide Ticketul", style=discord.ButtonStyle.danger, custom_id="close_ticket_btn")
+    async def close_ticket(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_message("🔒 Ticketul se va închide și se va genera transcriptul...", ephemeral=True)
+        
+        channel = interaction.channel
+        guild = interaction.guild
+        transcript_channel = guild.get_channel(TRANSCRIPT_CHANNEL_ID)
+
+        # Generare simplă de transcript din istoricul mesajelor
+        messages_text = []
+        async for message in channel.history(limit=200, oldest_first=True):
+            messages_text.append(f"[{message.created_at.strftime('%Y-%m-%d %H:%M:%S')}] {message.author}: {message.content}")
+        
+        transcript_content = "\n".join(messages_text)
+        file_io = io.BytesIO(transcript_content.encode('utf-8'))
+        file = discord.File(file_io, filename=f"transcript-{channel.name}.txt")
+
+        if transcript_channel:
+            await transcript_channel.send(f"📁 **Transcript pentru canalul `{channel.name}`** (închis de {interaction.user}):", file=file)
+
+        import asyncio
+        await asyncio.sleep(3)
+        try:
+            await channel.delete()
+        except:
+            pass
+
+class TicketSelectMenu(ui.Select):
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="N1tr0", value="nitro", emoji="🎁"),
+            discord.SelectOption(label="B00st", value="boost", emoji="🚀"),
+            discord.SelectOption(label="D3c0", value="deco", emoji="🎨"),
+            discord.SelectOption(label="Other", value="other", emoji="🎫"),
+            discord.SelectOption(label="Replace", value="replace", emoji="🔄"),
+        ]
+        super().__init__(placeholder="Select a category below to open a ticket.", options=options)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        category = guild.get_channel(CATEGORY_ID)
+        
+        choice = self.values[0]
+        role_id = TICKET_ROLES.get(choice)
+        support_role = guild.get_role(role_id) if role_id else None
+        replace_role = guild.get_role(TICKET_ROLES["replace"]) # Rolul suplimentar de replace care trebuie să vadă tichetele
+
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            interaction.user: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        }
+        
+        if support_role:
+            overwrites[support_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+        
+        # Dacă e alt tip de ticket, asigurăm vizibilitatea și pentru staff-ul de replace dacă e cazul sau invers
+        if replace_role and replace_role != support_role:
+            overwrites[replace_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+        channel_kwargs = {
+            "name": f"ticket-{choice}-{interaction.user.name}",
+            "overwrites": overwrites,
+            "topic": f"Ticket {choice} deschis de {interaction.user}"
+        }
+        if category and isinstance(category, discord.CategoryChannel):
+            channel_kwargs["category"] = category
+
+        ticket_channel = await guild.create_text_channel(**channel_kwargs)
+
+        embed = discord.Embed(
+            title=f"🎫 Ticket {choice.upper()} - {interaction.user.display_name}",
+            description=f"Salut, {interaction.user.mention}!\nUn operator va veni în curând.\n\nCategoria aleasă: **{choice.upper()}**",
+            color=0xf1c40f
+        )
+        embed.set_footer(text="Powered by Ticket King Style")
+
+        mentions = f"{interaction.user.mention}"
+        if support_role:
+            mentions += f" {support_role.mention}"
+        if replace_role and replace_role != support_role:
+            mentions += f" {replace_role.mention}"
+
+        await ticket_channel.send(content=mentions, embed=embed, view=TicketControlView())
+        await interaction.response.send_message(f"✅ Ticketul tău a fost creat aici: {ticket_channel.mention}", ephemeral=True)
+
+class TicketKingPanelView(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.add_item(TicketSelectMenu())
+
+@bot.command(name="panel")
+@commands.has_permissions(administrator=True)
+async def panel_prefix(ctx):
+    embed = discord.Embed(
+        title="VNS Market",
+        description="🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below to open a ticket.\n\n*Powered by Ticket King*",
+        color=0xf1c40f
+    )
+    await ctx.send(embed=embed, view=TicketKingPanelView())
+
+@bot.tree.command(name="panel", description="Trimite panoul de tickete stil Ticket King")
+@app_commands.checks.has_permissions(administrator=True)
+async def panel_slash(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="VNS Market",
+        description="🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below to open a ticket.\n\n*Powered by Ticket King*",
+        color=0xf1c40f
+    )
+    await interaction.response.send_message("Panou trimis cu succes!", ephemeral=True)
+    await interaction.channel.send(embed=embed, view=TicketKingPanelView())
+
+# ==========================================
+# 3. CALCULATOR COMISIOANE (!fee)
 # ==========================================
 def calculate_fee(amount: float):
     pp_fee = (amount + 0.49) / (1 - 0.0349)
@@ -224,7 +339,7 @@ async def fee_slash(interaction: discord.Interaction, suma: float):
     await interaction.response.send_message(embed=embed)
 
 # ==========================================
-# 3. NOTIFICĂRI RESTOCK (!notify & !restock)
+# 4. NOTIFICĂRI RESTOCK (!notify & !restock)
 # ==========================================
 @bot.command(name="notify")
 async def notify_prefix(ctx, *, produs: str):
@@ -255,7 +370,7 @@ async def notify_slash(interaction: discord.Interaction, produs: str):
 async def proceseaza_restock(channel, autor, produs, cantitate, detalii):
     embed = discord.Embed(
         title="🚨 **RESTOCK NOU ALIMENTAT!**",
-        description=f"Am alimentat stocul pentru **{produs}**!\n\n🎫 **Comandă acum prin ticket:**\n{TICKET_LINK}",
+        description=f"Am alimentat stocul pentru **{produs}**!\n\n🎫 Deschide un ticket din panou pentru a comanda!",
         color=0x00ff00
     )
     embed.add_field(name="📦 Cantitate adăugată:", value=f"`{cantitate}`", inline=True)
@@ -263,7 +378,7 @@ async def proceseaza_restock(channel, autor, produs, cantitate, detalii):
         embed.add_field(name="ℹ️ Detalii:", value=detalii, inline=False)
     embed.set_footer(text=f"Restock efectuat de {autor.display_name}")
 
-    await channel.send(content="@everyone", embed=embed)
+    await channel.send(content="@everyone", embed=embed, view=TicketKingPanelView())
 
     data = load_notifications()
     produs_key = produs.lower().strip()
@@ -274,7 +389,7 @@ async def proceseaza_restock(channel, autor, produs, cantitate, detalii):
             try:
                 user = await bot.fetch_user(user_id)
                 if user:
-                    await user.send(f"🔔 **RESTOCK ALERT!** Produsul **{produs}** este acum în stoc ({cantitate} bucăți)!\n🎫 Cumpără aici: {TICKET_LINK}")
+                    await user.send(f"🔔 **RESTOCK ALERT!** Produsul **{produs}** este acum în stoc ({cantitate} bucăți)!")
                     notified_count += 1
             except:
                 pass
@@ -294,7 +409,7 @@ async def restock_slash(interaction: discord.Interaction, produs: str, cantitate
     await proceseaza_restock(interaction.channel, interaction.user, produs, cantitate, detalii)
 
 # ==========================================
-# 4. FLASH DROP (!drop)
+# 5. FLASH DROP (!drop)
 # ==========================================
 class DropView(ui.View):
     def __init__(self, premiu: str):
@@ -315,19 +430,17 @@ class DropView(ui.View):
         await interaction.message.edit(view=self)
         
         try:
-            # Mesajul care ajunge în DM-ul câștigătorului cu instrucțiunea de ticket:
             mesaj_dm = (
                 f"🎉 **Felicitări!** Ai câștigat drop-ul:\n\n`{self.premiu}`\n\n"
-                f"🎫 **Pentru a intra în posesia premiului, te rog să deschizi un ticket aici:**\n{TICKET_LINK}"
+                f"🎫 **Te rugăm să deschizi un ticket pe server pentru a intra în posesia premiului!**"
             )
             await interaction.user.send(mesaj_dm)
             await interaction.response.send_message(f"🏆 {interaction.user.mention} a câștigat drop-ul! Verifică DM-ul.", ephemeral=False)
         except:
-            # Dacă are DM închis, îl anunțăm pe chat să facă ticket:
             mesaj_fallback = (
                 f"🏆 {interaction.user.mention} a câștigat, dar are DM-ul închis!\n"
                 f"🎁 **Premiul:** `{self.premiu}`\n\n"
-                f"🎫 **Deschide un ticket pentru a-l primi:** {TICKET_LINK}"
+                f"🎫 **Deschide un ticket pentru a-l revendica!**"
             )
             await interaction.response.send_message(mesaj_fallback, ephemeral=False)
 
@@ -352,10 +465,10 @@ async def drop_slash(interaction: discord.Interaction, premiu: str):
     await interaction.response.send_message(embed=embed, view=DropView(premiu))
 
 # ==========================================
-# 5. FAQ (!faq)
+# 6. FAQ (!faq)
 # ==========================================
 FAQS = {
-    "cumpar": ("🛒 Cum Cumpăr?", f"1. Deschide un ticket aici: {TICKET_LINK}\n2. Specifică produsul dorit.\n3. Așteaptă un operator."),
+    "cumpar": ("🛒 Cum Cumpăr?", "1. Folosește panoul de tickete de pe server.\n2. Alege categoria dorită.\n3. Așteaptă un operator."),
     "plata": ("💳 Metode de Plată", "• Revolut / Card\n• PayPal (F&F)\n• Crypto (LTC / USDT)\n• Paysafecard"),
     "garantie": ("🛡️ Garanție", "Garanție valabilă doar cu dovadă video neîntreruptă de la achiziție.")
 }
@@ -379,7 +492,7 @@ async def faq_slash(interaction: discord.Interaction, subiect: str):
         await interaction.response.send_message(f"❌ Subiect necunoscut. Alege: `{', '.join(FAQS.keys())}`", ephemeral=True)
 
 # ==========================================
-# 6. MENIU HELP CUSTOM (!help)
+# 7. MENIU HELP CUSTOM (!help)
 # ==========================================
 def creare_embed_help():
     embed = discord.Embed(
@@ -387,17 +500,13 @@ def creare_embed_help():
         description="Iată lista completă a comenzilor pe care le poți folosi. \n*Toate funcționează și cu Slash (`/`)*.",
         color=0x2b2d31
     )
-    
-    # Comenzi pentru Clienți
-    embed.add_field(name="🛒 `!stock [cautare]`", value="Afișează stocul sau caută un produs specific.", inline=False)
+    embed.add_field(name="🛒 `!stock [cautare]`", value="Afișează stocul, prețul, descrierea și butonul de ticket.", inline=False)
+    embed.add_field(name="🎫 `!panel`", value="*(Admin)* Trimite panoul interactiv de tickete stil Ticket King.", inline=False)
     embed.add_field(name="🧮 `!fee <suma>`", value="Calculează comisioanele pentru PayPal și Card.", inline=False)
     embed.add_field(name="🔔 `!notify <produs>`", value="Te abonezi și primești DM când produsul revine în stoc.", inline=False)
     embed.add_field(name="❓ `!faq <subiect>`", value="Ghid rapid. Subiecte disponibile: `cumpar`, `plata`, `garantie`.", inline=False)
-    
-    # Comenzi pentru Admini
     embed.add_field(name="🚨 `!restock <produs> <cantitate>`", value="*(Admin)* Anunță stoc nou pe chat și dă DM la abonați.", inline=False)
     embed.add_field(name="⚡ `!drop <premiu>`", value="*(Admin)* Face un Drop pe chat cu buton de revendicare.", inline=False)
-    
     embed.set_footer(text="Exemplu: /stock netflix | /fee 15 | !faq plata")
     return embed
 
@@ -412,4 +521,3 @@ async def help_slash(interaction: discord.Interaction):
 if __name__ == "__main__":
     threading.Thread(target=run_web_server).start()
     bot.run(TOKEN)
-                    
