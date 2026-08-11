@@ -88,7 +88,6 @@ def parse_nextjs_data(html_text):
         except:
             pass
 
-    # Fallback Regex dacă scriptul nu s-a putut parsa
     if not products:
         raw_matches = re.findall(r'"(?:name|title)":"([^"]+)".*?"price":\s*([\d\.]+)', html_text)
         for name, price in raw_matches:
@@ -121,25 +120,35 @@ def get_products():
         print(f"Eroare fetch: {e}")
     return []
 
-# --- TRIMITERE SECURIZATĂ ÎNTR-UN SINGUR MESAJ ---
-async def trimite_produse(target):
+# --- TRIMITERE & FILTRARE STOC ---
+async def trimite_produse(target, cautare=None):
     try:
         items = get_products()
         if not items:
             await target.send("Momentan nu există produse în stoc pe site.")
             return
 
-        # Protecție la limita Discord (maxim 15 produse per Embed)
+        # Dacă userul a specificat un produs (ex: !stock netflix)
+        if cautare:
+            termen = cautare.lower().strip()
+            items = [p for p in items if termen in p["name"].lower()]
+            
+            if not items:
+                await target.send(f"❌ Produsul **\"{cautare}\"** nu a fost găsit în stoc momentan.")
+                return
+
         items_to_display = items[:15]
 
+        titlu_embed = f"🔍 Rezultate căutare: **{cautare}**" if cautare else "🛒 **STOC PRODUSE DISPONIBILE**"
+
         embed = discord.Embed(
-            title="🛒 **STOC PRODUSE DISPONIBILE**",
-            description=f"Am găsit **{len(items)}** produse în stoc (afișez primele {len(items_to_display)}):\n\n",
+            title=titlu_embed,
+            description=f"Am găsit **{len(items)}** produs(e) disponibile:\n\n",
             color=0x2b2d31
         )
 
         for idx, item in enumerate(items_to_display, 1):
-            title_clean = item['name'][:200]  # Tăiem la max 200 char să nu depășească limita
+            title_clean = item['name'][:200]
             embed.add_field(
                 name=f"{idx}. {title_clean}",
                 value=f"💵 **Preț:** `{item['price']}`",
@@ -150,19 +159,18 @@ async def trimite_produse(target):
         await target.send(embed=embed)
 
     except Exception as err:
-        # Trimite eroarea direct în canal în loc să tacă botul
-        await target.send(f"⚠️ Eroare la generarea mesajului: `{err}`")
+        await target.send(f"⚠️ Eroare: `{err}`")
 
 @bot.command(name="stock")
-async def stock_prefix(ctx):
+async def stock_prefix(ctx, *, cautare: str = None):
     await ctx.send("🔍 Preluare stoc actualizat...")
-    await trimite_produse(ctx)
+    await trimite_produse(ctx, cautare)
 
-@bot.tree.command(name="stock", description="Afișează produsele în stoc")
-async def stock_slash(interaction: discord.Interaction):
+@bot.tree.command(name="stock", description="Caută un produs sau afișează tot stocul")
+async def stock_slash(interaction: discord.Interaction, produs: str = None):
     await interaction.response.defer()
     await interaction.followup.send("🔍 Preluare stoc actualizat...")
-    await trimite_produse(interaction.followup)
+    await trimite_produse(interaction.followup, produs)
 
 @bot.command(name="debug")
 async def debug_cmd(ctx):
@@ -175,4 +183,4 @@ async def debug_cmd(ctx):
 if __name__ == "__main__":
     threading.Thread(target=run_web_server).start()
     bot.run(TOKEN)
-    
+                          
