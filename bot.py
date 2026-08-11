@@ -39,15 +39,21 @@ def get_products():
     url = "https://dailystore.me/"
     headers = {"User-Agent": "Mozilla/5.0"}
     try:
-        # params={"t": time.time()} forțează site-ul să ne dea date proaspete
         response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
-        products = []
         
-        # Selectăm elementele de produs (ajustate pentru structura generală)
-        items = soup.select('.product, .item, [data-product-id]')
+        # DEBUG: Afișăm în log-urile Render ce conține pagina
+        print("DEBUG: Site response length:", len(response.text))
+        print("DEBUG: First 500 characters:", soup.get_text()[:500])
+        
+        products = []
+        # Încercăm să găsim orice element care pare a fi un produs
+        items = soup.select('.product, .item, [data-product-id], .card')
+        print(f"DEBUG: Am găsit {len(items)} elemente de tip produs.")
         
         for item in items:
+            # ... restul logicii ramane la fel ...
+            
             text = item.text.lower()
             # Filtrare stoc
             if any(x in text for x in ["out of stock", "sold out", "stoc epuizat"]):
