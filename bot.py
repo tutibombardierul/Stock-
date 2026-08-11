@@ -67,7 +67,7 @@ async def on_ready():
     print(f'Botul All-in-One este conectat ca: {bot.user}')
 
 # ==========================================
-# 1. PARSARE STOC (CU DESCRIERE ȘI PREȚ)
+# 1. PARSARE STOC (METODĂ ÎMBUNĂTĂȚITĂ)
 # ==========================================
 def get_products():
     headers = {
@@ -81,56 +81,27 @@ def get_products():
     products = []
     seen = set()
 
-    script_tag = soup.find('script', id='__NEXT_DATA__')
-    if script_tag and script_tag.string:
-        try:
-            data = json.loads(script_tag.string)
-            def walk_json(obj):
-                if isinstance(obj, dict):
-                    name = obj.get('title') or obj.get('name') or obj.get('label')
-                    price = obj.get('price') or obj.get('cost') or obj.get('val') or obj.get('minPrice')
-                    description = obj.get('description') or obj.get('desc') or obj.get('details') or ""
-                    is_out = obj.get('outOfStock', False) or obj.get('soldOut', False)
-
-                    if name and price is not None and isinstance(name, str) and len(name.strip()) > 1 and not is_out:
-                        try:
-                            p_num = float(re.search(r'(\d+(?:\.\d+)?)', str(price)).group(1))
-                            p_final = f"${(p_num + 0.10):.2f}"
-                            clean_name = name.strip()
-                            clean_desc = str(description).strip() if description else "Fără descriere disponibilă"
-                            
-                            if clean_name not in seen:
-                                seen.add(clean_name)
-                                products.append({
-                                    "name": clean_name, 
-                                    "price": p_final,
-                                    "description": clean_desc
-                                })
-                        except:
-                            pass
-                    for v in obj.values():
-                        walk_json(v)
-                elif isinstance(obj, list):
-                    for item in obj:
-                        walk_json(item)
-            walk_json(data)
-        except:
-            pass
-
-    if not products:
-        raw_matches = re.findall(r'"(?:name|title)":"([^"]+)".*?"price":\s*([\d\.]+)', res.text)
-        for name, price in raw_matches:
-            if len(name) < 80 and '$' not in name and name not in seen:
-                try:
-                    p_num = float(price) + 0.10
-                    seen.add(name)
-                    products.append({
-                        "name": name, 
-                        "price": f"${p_num:.2f}",
-                        "description": "Fără descriere disponibilă"
-                    })
-                except:
-                    pass
+    # Căutare generală după elemente care ar putea conține produse (carduri, titluri, prețuri)
+    for element in soup.find_all(['div', 'a', 'article', 'span', 'h3', 'h4']):
+        text = element.get_text(strip=True)
+        
+        # Căutăm prețuri de forma $X.XX sau X.XX$ în text
+        price_match = re.search(r'\$?(\d+\.\d{2})\b', text)
+        if price_match:
+            try:
+                p_val = float(price_match.group(1))
+                if 0.05 < p_val < 500: # Filtrare pentru a fi un preț realist
+                    name = text.replace(price_match.group(0), "").strip()
+                    if 3 < len(name) < 100 and name not in seen and not any(c in name for c in ["{", "}", "<", ">"]):
+                        seen.add(name)
+                        p_final = f"${(p_val + 0.10):.2f}"
+                        products.append({
+                            "name": name,
+                            "price": p_final,
+                            "description": "Produs disponibil pe DailyStore"
+                        })
+            except:
+                pass
 
     return products
 
@@ -238,7 +209,7 @@ class TicketSelectMenu(ui.Select):
         choice = self.values[0]
         role_id = TICKET_ROLES.get(choice)
         support_role = guild.get_role(role_id) if role_id else None
-        replace_role = guild.get_role(TICKET_ROLES["replace"]) # Rolul suplimentar de replace care trebuie să vadă tichetele
+        replace_role = guild.get_role(TICKET_ROLES["replace"])
 
         overwrites = {
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
@@ -248,7 +219,6 @@ class TicketSelectMenu(ui.Select):
         if support_role:
             overwrites[support_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
         
-        # Dacă e alt tip de ticket, asigurăm vizibilitatea și pentru staff-ul de replace dacă e cazul sau invers
         if replace_role and replace_role != support_role:
             overwrites[replace_role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
