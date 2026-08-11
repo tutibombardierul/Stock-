@@ -45,6 +45,9 @@ intents.message_content = True
 # OPRIRE HELP DEFAULT PENTRU A PUTEA PUNE UNUL CUSTOM
 bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
+# --- LINK TICKET SETAT MANUAL ---
+TICKET_LINK = "https://discord.com/channels/1533357146823987392/1533400621464682546"
+
 @bot.event
 async def on_ready():
     try:
@@ -145,14 +148,14 @@ async def trimite_produse(target, cautare=None):
     try:
         items = get_products()
         if not items:
-            await target.send("❌ Nu am găsit niciun produs în stoc pe site.")
+            await target.send(f"❌ Nu am găsit niciun produs pe stoc momentan.\n\n🎫 **Vrei să plasezi o comandă sau să pui o întrebare?**\nDeschide un ticket aici: {TICKET_LINK}")
             return
 
         if cautare:
             termen = cautare.lower().strip()
             items = [p for p in items if termen in p["name"].lower()]
             if not items:
-                await target.send(f"❌ Produsul **\"{cautare}\"** nu a fost găsit în stoc.")
+                await target.send(f"❌ Produsul **\"{cautare}\"** nu a fost găsit în stoc.\n\n🎫 **Vrei să întrebi de stoc sau să precomanzi?**\nDeschide un ticket aici: {TICKET_LINK}")
                 return
 
         items_to_display = items[:15]
@@ -160,7 +163,7 @@ async def trimite_produse(target, cautare=None):
 
         embed = discord.Embed(
             title=titlu_embed,
-            description=f"Am găsit **{len(items)}** produse (afișate primele {len(items_to_display)}):\n\n",
+            description=f"Am găsit **{len(items)}** produse.\n\n🎫 **CUM CUMPĂR?**\n[Deschide un ticket apăsând AICI]({TICKET_LINK}) și scrie-ne ce vrei să comanzi!\n\n",
             color=0x2b2d31
         )
 
@@ -179,13 +182,11 @@ async def trimite_produse(target, cautare=None):
 
 @bot.command(name="stock")
 async def stock_prefix(ctx, *, cautare: str = None):
-    await ctx.send("🔍 Verific stocul pe site...")
     await trimite_produse(ctx, cautare)
 
 @bot.tree.command(name="stock", description="Afișează sau caută un produs în stoc")
 async def stock_slash(interaction: discord.Interaction, produs: str = None):
     await interaction.response.defer()
-    await interaction.followup.send("🔍 Verific stocul pe site...")
     await trimite_produse(interaction.followup, produs)
 
 # ==========================================
@@ -254,7 +255,7 @@ async def notify_slash(interaction: discord.Interaction, produs: str):
 async def proceseaza_restock(channel, autor, produs, cantitate, detalii):
     embed = discord.Embed(
         title="🚨 **RESTOCK NOU ALIMENTAT!**",
-        description=f"Am alimentat stocul pentru **{produs}**!",
+        description=f"Am alimentat stocul pentru **{produs}**!\n\n🎫 **Comandă acum prin ticket:**\n{TICKET_LINK}",
         color=0x00ff00
     )
     embed.add_field(name="📦 Cantitate adăugată:", value=f"`{cantitate}`", inline=True)
@@ -273,7 +274,7 @@ async def proceseaza_restock(channel, autor, produs, cantitate, detalii):
             try:
                 user = await bot.fetch_user(user_id)
                 if user:
-                    await user.send(f"🔔 **RESTOCK ALERT!** Produsul **{produs}** pe care îl așteptai este acum în stoc ({cantitate} bucăți)!")
+                    await user.send(f"🔔 **RESTOCK ALERT!** Produsul **{produs}** este acum în stoc ({cantitate} bucăți)!\n🎫 Cumpără aici: {TICKET_LINK}")
                     notified_count += 1
             except:
                 pass
@@ -306,16 +307,29 @@ class DropView(ui.View):
         if self.claimed:
             await interaction.response.send_message("❌ Premiul a fost deja revendicat!", ephemeral=True)
             return
+        
         self.claimed = True
         button.disabled = True
         button.label = "❌ Revendicat"
         button.style = discord.ButtonStyle.secondary
         await interaction.message.edit(view=self)
+        
         try:
-            await interaction.user.send(f"🎉 **Felicitări!** Ai câștigat drop-ul:\n\n`{self.premiu}`")
+            # Mesajul care ajunge în DM-ul câștigătorului cu instrucțiunea de ticket:
+            mesaj_dm = (
+                f"🎉 **Felicitări!** Ai câștigat drop-ul:\n\n`{self.premiu}`\n\n"
+                f"🎫 **Pentru a intra în posesia premiului, te rog să deschizi un ticket aici:**\n{TICKET_LINK}"
+            )
+            await interaction.user.send(mesaj_dm)
             await interaction.response.send_message(f"🏆 {interaction.user.mention} a câștigat drop-ul! Verifică DM-ul.", ephemeral=False)
         except:
-            await interaction.response.send_message(f"🏆 {interaction.user.mention} a câștigat, dar are DM-ul închis! Premiul: `{self.premiu}`", ephemeral=False)
+            # Dacă are DM închis, îl anunțăm pe chat să facă ticket:
+            mesaj_fallback = (
+                f"🏆 {interaction.user.mention} a câștigat, dar are DM-ul închis!\n"
+                f"🎁 **Premiul:** `{self.premiu}`\n\n"
+                f"🎫 **Deschide un ticket pentru a-l primi:** {TICKET_LINK}"
+            )
+            await interaction.response.send_message(mesaj_fallback, ephemeral=False)
 
 @bot.command(name="drop")
 @commands.has_permissions(administrator=True)
@@ -341,7 +355,7 @@ async def drop_slash(interaction: discord.Interaction, premiu: str):
 # 5. FAQ (!faq)
 # ==========================================
 FAQS = {
-    "cumpar": ("🛒 Cum Cumpăr?", "1. Deschide un ticket.\n2. Specifică produsul dorit.\n3. Așteaptă un operator."),
+    "cumpar": ("🛒 Cum Cumpăr?", f"1. Deschide un ticket aici: {TICKET_LINK}\n2. Specifică produsul dorit.\n3. Așteaptă un operator."),
     "plata": ("💳 Metode de Plată", "• Revolut / Card\n• PayPal (F&F)\n• Crypto (LTC / USDT)\n• Paysafecard"),
     "garantie": ("🛡️ Garanție", "Garanție valabilă doar cu dovadă video neîntreruptă de la achiziție.")
 }
@@ -393,10 +407,9 @@ async def help_prefix(ctx):
 
 @bot.tree.command(name="help", description="Afișează lista cu toate comenzile disponibile.")
 async def help_slash(interaction: discord.Interaction):
-    # La /help e bine să fie ephemeral, să nu facă spam în chat-ul principal
     await interaction.response.send_message(embed=creare_embed_help(), ephemeral=True)
 
 if __name__ == "__main__":
     threading.Thread(target=run_web_server).start()
     bot.run(TOKEN)
-        
+                    
