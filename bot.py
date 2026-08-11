@@ -33,15 +33,33 @@ async def on_ready():
 def get_products():
     url = "https://dailystore.me/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     }
     
     try:
-        # Preluăm pagina proaspătă la fiecare comandă (fără cache)
-        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=12)
+        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=10)
         soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # --- DEBUG: Trimite 2000 caractere din HTML în log-urile Render ---
+        raw_html = soup.prettify()
+        print("DEBUG_START_HTML")
+        print(raw_html[:2000]) # Primele 2000 caractere
+        print("DEBUG_END_HTML")
+        # ------------------------------------------------------------------
+
+        # Dacă lungimea e mică, înseamnă că ne-a blocat
+        if len(response.text) < 500:
+            print("AVERTISMENT: Pagina primită este prea scurtă. Probabil suntem blocați.")
+            return []
+
+        # ... (restul logicii rămâne la fel) ...
+        products = []
+        # (păstrează restul funcției get_products exact cum era anterior)
+        # ...
+        return products
+    except Exception as e:
+        print(f"Eroare: {e}")
+        return []   
         products = []
         seen_names = set()
 
