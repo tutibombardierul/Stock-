@@ -10,11 +10,11 @@ from discord.ext import commands
 from bs4 import BeautifulSoup
 from flask import Flask
 
-# --- SERVER WEB PENTRU RENDER (Keep-alive) ---
+# --- SERVER WEB PENTRU RENDER ---
 app = Flask(__name__)
 @app.route('/')
 def home():
-    return "Botul este activ și pregătit!"
+    return "Botul este activ!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -39,7 +39,6 @@ def parse_nextjs_data(html_text):
     products = []
     found_raw = []
 
-    # 1. Extragere directă din scriptul Next.js (__NEXT_DATA__)
     script_tag = soup.find('script', id='__NEXT_DATA__')
     if script_tag and script_tag.string:
         try:
@@ -74,9 +73,8 @@ def parse_nextjs_data(html_text):
 
             walk_json(data)
         except Exception as e:
-            print(f"Eroare JSON parsing: {e}")
+            print(f"Eroare JSON: {e}")
 
-    # Procesăm prețurile (+0.10$)
     for name, raw_price in found_raw:
         try:
             if isinstance(raw_price, (int, float)):
@@ -86,29 +84,21 @@ def parse_nextjs_data(html_text):
                 p_num = float(match.group(1)) if match else 0.0
 
             p_final = f"${(p_num + 0.10):.2f}"
-
-            products.append({
-                "name": name,
-                "price": p_final
-            })
+            products.append({"name": name, "price": p_final})
         except:
             pass
 
-    # 2. Fallback Regex
+    # Fallback Regex dacă scriptul nu s-a putut parsa
     if not products:
         raw_matches = re.findall(r'"(?:name|title)":"([^"]+)".*?"price":\s*([\d\.]+)', html_text)
         for name, price in raw_matches:
             if len(name) < 80 and '$' not in name:
                 try:
                     p_num = float(price) + 0.10
-                    products.append({
-                        "name": name,
-                        "price": f"${p_num:.2f}"
-                    })
+                    products.append({"name": name, "price": f"${p_num:.2f}"})
                 except:
                     pass
 
-    # Eliminăm duplicatele
     seen = set()
     unique_products = []
     for p in products:
@@ -126,34 +116,42 @@ def get_products():
     try:
         res = requests.get("https://dailystore.me/", headers=headers, params={"t": time.time()}, timeout=12)
         if res.status_code == 200:
-            return parse_nextjs_data(res.text)[:25]
+            return parse_nextjs_data(res.text)
     except Exception as e:
         print(f"Eroare fetch: {e}")
     return []
 
-# --- TRIMITEREA ÎNTR-UN SINGUR MESAJ / EMBED ---
+# --- TRIMITERE SECURIZATĂ ÎNTR-UN SINGUR MESAJ ---
 async def trimite_produse(target):
-    items = get_products()
-    if not items:
-        await target.send("Momentan nu există produse în stoc pe site.")
-        return
+    try:
+        items = get_products()
+        if not items:
+            await target.send("Momentan nu există produse în stoc pe site.")
+            return
 
-    embed = discord.Embed(
-        title="🛒 **STOC PRODUSE DISPONIBILE**",
-        description="Iată produsele aflate în stoc pe site în acest moment:\n\n",
-        color=0x2b2d31  # Culoare elegantă Dark Discord
-    )
+        # Protecție la limita Discord (maxim 15 produse per Embed)
+        items_to_display = items[:15]
 
-    for idx, item in enumerate(items, 1):
-        embed.add_field(
-            name=f"{idx}. {item['name']}",
-            value=f"💵 **Preț:** `{item['price']}`",
-            inline=False
+        embed = discord.Embed(
+            title="🛒 **STOC PRODUSE DISPONIBILE**",
+            description=f"Am găsit **{len(items)}** produse în stoc (afișez primele {len(items_to_display)}):\n\n",
+            color=0x2b2d31
         )
 
-    embed.set_footer(text="Toate prețurile includ comisionul de +0.10$")
-    
-    await target.send(embed=embed)
+        for idx, item in enumerate(items_to_display, 1):
+            title_clean = item['name'][:200]  # Tăiem la max 200 char să nu depășească limita
+            embed.add_field(
+                name=f"{idx}. {title_clean}",
+                value=f"💵 **Preț:** `{item['price']}`",
+                inline=False
+            )
+
+        embed.set_footer(text="Toate prețurile includ comisionul de +0.10$")
+        await target.send(embed=embed)
+
+    except Exception as err:
+        # Trimite eroarea direct în canal în loc să tacă botul
+        await target.send(f"⚠️ Eroare la generarea mesajului: `{err}`")
 
 @bot.command(name="stock")
 async def stock_prefix(ctx):
