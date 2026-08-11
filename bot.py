@@ -9,7 +9,7 @@ from discord.ext import commands
 from bs4 import BeautifulSoup
 from flask import Flask
 
-# --- WEB SERVER PENTRU RENDER ---
+# --- WEB SERVER PENTRU RENDER (Gratuit 24/7) ---
 app = Flask(__name__)
 @app.route('/')
 def home():
@@ -33,38 +33,41 @@ async def on_ready():
 def get_products():
     url = "https://dailystore.me/"
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9"
     }
     
     try:
-        # Preluăm pagina proaspătă de la fiecare comandă
-        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=10)
+        # Preluăm pagina proaspătă la fiecare comandă (fără cache)
+        response = requests.get(url, headers=headers, params={"t": time.time()}, timeout=12)
         soup = BeautifulSoup(response.text, 'html.parser')
         products = []
-
-        # Căutăm containere generice de produse (div-uri, carduri, li-uri)
-        candidates = soup.select('div[class*="product"], div[class*="card"], div[class*="item"], a[class*="card"], .card, .product, article')
-        
-        # Dacă nu găsește cu clase standard, caută toate elementele ce conțin un preț
-        if not candidates:
-            for elem in soup.find_all(['div', 'article', 'li']):
-                if '$' in elem.text and len(elem.text.strip()) < 400:
-                    candidates.append(elem)
-
         seen_names = set()
 
-        for item in candidates:
-            text = item.text.lower()
+        # 1. Căutăm toate node-urile din HTML care conțin simbolul de preț $
+        price_nodes = soup.find_all(string=re.compile(r'\$\s*\d+|\d+\s*\$'))
+
+        for node in price_nodes:
+            # Urcăm în arborele HTML pentru a găsi containerul (cardul) produsului
+            card = node.parent
+            for _ in range(4):
+                if card and card.parent and card.parent.name not in ['body', 'html', 'main']:
+                    card = card.parent
+
+            if not card:
+                continue
+
+            card_text = card.text.lower()
 
             # --- FILTRARE STOC ---
-            if any(x in text for x in ["out of stock", "sold out", "stoc epuizat", "0 in stock", "0 left", "out-of-stock"]):
+            if any(x in card_text for x in ["out of stock", "sold out", "stoc epuizat", "0 in stock", "0 left", "out-of-stock", "0 stoc"]):
                 continue
 
             # --- EXTRAGERE PREȚ + ADĂUGARE 0.10$ ---
-            price_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', item.text)
+            price_match = re.search(r'\$\s*(\d+(?:\.\d+)?)', card.text)
             if not price_match:
-                price_match = re.search(r'(\d+(?:\.\d+)?)\s*\$', item.text)
+                price_match = re.search(r'(\d+(?:\.\d+)?)\s*\$', card.text)
 
             if not price_match:
                 continue
@@ -73,29 +76,33 @@ def get_products():
             new_val = original_val + 0.10
             price_str = f"${new_val:.2f}"
 
-            # --- EXTRAGERE TITLU ---
+            # --- EXTRAGERE TITLU / NUME ---
             name = None
-            for tag in ['h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'b', 'a']:
-                name_elem = item.find(tag)
-                if name_elem and len(name_elem.text.strip()) > 1 and '$' not in name_elem.text:
-                    name = name_elem.text.strip()
+            for tag_name in ['h1', 'h2', 'h3', 'h4', 'h5', 'strong', 'b', 'a', 'p', 'span']:
+                for el in card.find_all(tag_name):
+                    t = el.text.strip()
+                    # Căutăm primul text scurt care nu conține preț sau cuvinte cheie de cumpărare
+                    if 2 < len(t) < 80 and '$' not in t and not any(k in t.lower() for k in ["stock", "buy", "cart", "adauga"]):
+                        name = t
+                        break
+                if name:
                     break
 
             if not name:
-                lines = [line.strip() for line in item.text.split('\n') if line.strip() and '$' not in line]
-                name = lines[0] if lines else "Produs"
+                continue
 
             # Evităm duplicatele
-            if name in seen_names or len(name) > 80:
+            if name in seen_names:
                 continue
             seen_names.add(name)
 
             # --- EXTRAGERE IMAGINE ---
-            img = item.find('img')
+            img = card.find('img')
             img_url = None
             if img:
-                src = img.get('src') or img.get('data-src')
+                src = img.get('src') or img.get('data-src') or img.get('srcset')
                 if src:
+                    src = src.split()[0]
                     if src.startswith('/'):
                         img_url = f"https://dailystore.me{src}"
                     elif src.startswith('http'):
@@ -107,15 +114,16 @@ def get_products():
                 "img": img_url
             })
 
-        return products[:15] # Afișează maxim primele 15 produse găsite
+        return products[:15] # Returnăm maxim 15 produse găsite în stoc
+
     except Exception as e:
-        print(f"Eroare la preluare produse: {e}")
+        print(f"Eroare scraping: {e}")
         return []
 
 async def trimite_produse(target):
     items = get_products()
     if not items:
-        await target.send("Momentan nu am găsit niciun produs în stoc pe site.")
+        await target.send("Momentan nu există produse în stoc pe site.")
         return
 
     for item in items:
@@ -124,7 +132,7 @@ async def trimite_produse(target):
             description=f"**Preț:** {item['price']}", 
             color=0x00ff00
         )
-        # Descărcăm și re-postăm poza pe Discord pentru anonimitate totală
+        # Anonimizăm imaginea (o găzduim temporar pe Discord CDN)
         if item["img"]:
             try:
                 res = requests.get(item["img"], timeout=5)
@@ -137,20 +145,20 @@ async def trimite_produse(target):
                 pass
         await target.send(embed=embed)
 
-# Comanda cu prefix !stock
+# Comanda !stock
 @bot.command(name="stock")
 async def stock_prefix(ctx):
     await ctx.send("🔍 Preluare stoc actualizat...")
     await trimite_produse(ctx)
 
-# Comanda cu slash /stock
+# Comanda /stock
 @bot.tree.command(name="stock", description="Afișează produsele în stoc")
 async def stock_slash(interaction: discord.Interaction):
     await interaction.response.defer()
     await interaction.followup.send("🔍 Preluare stoc actualizat...")
     await trimite_produse(interaction.followup)
 
-# --- LANSARE SERVER WEB ȘI BOT ---
+# --- START SERVER ȘI BOT ---
 if __name__ == "__main__":
     threading.Thread(target=run_web_server).start()
     bot.run(TOKEN)
