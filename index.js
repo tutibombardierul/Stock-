@@ -1,3 +1,16 @@
+const http = require('http');
+
+// Creează un server web simplu care răspunde pe portul cerut de Render
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running!');
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`Serverul HTTP ascultă pe portul ${PORT}`);
+});
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const OpenAI = require('openai');
 
