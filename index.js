@@ -1,3 +1,6 @@
+// ==============================================================================
+// 1. MODULES & SERVER SETUP (KEEP-ALIVE FOR RENDER)
+// ==============================================================================
 const { 
     Client, 
     GatewayIntentBits, 
@@ -15,9 +18,9 @@ const {
 const express = require('express');
 require('dotenv').config();
 
-// Web server to keep Render service alive
+// Express Server to keep Render web service online
 const app = express();
-app.get('/', (req, res) => res.send('VNS Market Bot is Online!'));
+app.get('/', (req, res) => res.send('⚡ VNS Market Bot is online and ready!'));
 app.listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -29,68 +32,96 @@ const client = new Client({
     ]
 });
 
-// Role & Category ID Configurations
-const STAFF_ROLE_ID = '1534625944017571941';
-const PINGS = {
-    NITRO: '1534479829225832528',
-    DECO: '1534480089083936789',
-    BOOST: '1534480275474612254',
-    OTHER: '1535562946107809883'
+// ==============================================================================
+// 2. CONFIGURATIONS & CONSTANTS
+// ==============================================================================
+const CONFIG = {
+    COLOR_PRIMARY: '#2B2D31',
+    COLOR_TICKET: '#5865F2',
+    STAFF_ROLE_ID: '1534625944017571941',
+    PINGS: {
+        NITRO: '1534479829225832528',
+        DECO: '1534480089083936789',
+        BOOST: '1534480275474612254',
+        OTHER: '1535562946107809883'
+    },
+    BANNER_URL: 'https://i.imgur.com/8Q73NqF.png'
 };
 
-// Temporary in-memory session store
+// Temporary session storage for active user choices
 const userSessions = new Map();
 
-// BOT READY EVENT + CLEAR ALL GLOBAL & GUILD COMMANDS
+// ==============================================================================
+// 3. READY EVENT & SLASH COMMAND REGISTRATION
+// ==============================================================================
 client.on('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag}!`);
+    console.log(`=================================`);
+    console.log(`✅ Logged in as: ${client.user.tag}`);
+    console.log(`=================================`);
+
+    const commands = [
+        {
+            name: 'setup-tickets',
+            description: 'Deploy the official VNS Market Tickets panel',
+            default_member_permissions: PermissionsBitField.Flags.Administrator.toString()
+        }
+    ];
 
     try {
-        // 1. Șterge toate comenzile Slash Globale
-        await client.application.commands.set([]);
-        console.log('🧹 All Global Slash Commands cleared!');
-
-        // 2. Șterge comenzile specifice fiecărui server în care se află botul (Guild Commands)
-        for (const guild of client.guilds.cache.values()) {
-            await guild.commands.set([]);
-        }
-        console.log('🧹 All Guild-specific Slash Commands cleared from all servers!');
+        await client.application.commands.set(commands);
+        console.log('✨ Registered /setup-tickets slash command globally!');
     } catch (error) {
-        console.error('Error clearing commands:', error);
+        console.error('❌ Failed to register slash command:', error);
     }
 });
 
+// ==============================================================================
+// 4. UI BUILDERS (MAIN PANEL & HELPERS)
+// ==============================================================================
+function buildMainPanel() {
+    const embed = new EmbedBuilder()
+        .setTitle('**VNS Market Tickets**')
+        .setDescription('🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below to open a ticket.')
+        .setColor(CONFIG.COLOR_PRIMARY);
 
-// Command to send Main Ticket Panel (!setup-tickets)
+    const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('panel_nitro').setLabel('Nitr0').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('panel_deco').setLabel('Dec0').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('panel_boost').setLabel('server b00st').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('panel_other').setLabel('other').setStyle(ButtonStyle.Secondary)
+    );
+
+    return { embeds: [embed], components: [row] };
+}
+
+// Prefix Backup Command (!setup-tickets)
 client.on('messageCreate', async (message) => {
     if (message.content === '!setup-tickets' && message.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        const embed = new EmbedBuilder()
-            .setTitle('**VNS Market Tickets**')
-            .setDescription('🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below to open a ticket.')
-            .setColor('#2b2d31');
-
-        const row = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId('panel_nitro').setLabel('Nitr0').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('panel_deco').setLabel('Dec0').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('panel_boost').setLabel('server b00st').setStyle(ButtonStyle.Primary),
-            new ButtonBuilder().setCustomId('panel_other').setLabel('other').setStyle(ButtonStyle.Secondary)
-        );
-
-        await message.channel.send({ embeds: [embed], components: [row] });
+        await message.channel.send(buildMainPanel());
         await message.delete().catch(() => {});
     }
 });
 
-// Handle All Interactions
+// ==============================================================================
+// 5. MAIN INTERACTION ENGINE
+// ==============================================================================
 client.on('interactionCreate', async (interaction) => {
+    // --- A. SLASH COMMANDS ---
+    if (interaction.isChatInputCommand()) {
+        if (interaction.commandName === 'setup-tickets') {
+            return interaction.reply(buildMainPanel());
+        }
+    }
+
     const userId = interaction.user.id;
     if (!userSessions.has(userId)) userSessions.set(userId, {});
     const session = userSessions.get(userId);
 
-    // --- 1. MAIN PANEL BUTTONS ---
+    // --- B. BUTTON INTERACTIONS ---
     if (interaction.isButton()) {
         const id = interaction.customId;
 
+        // Main Panel Options
         if (id === 'panel_nitro') {
             session.category = 'Nitr0';
             const menu = new ActionRowBuilder().addComponents(
@@ -98,42 +129,44 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('select_nitro_type')
                     .setPlaceholder('Select Nitro Type')
                     .addOptions([
-                        { label: 'Nitro Boost', value: 'Nitr0 Boost' },
-                        { label: 'Nitro Basic', value: 'Nitr0 Basic' }
+                        { label: 'Nitro Boost', value: 'Nitr0 Boost', description: 'Includes 2 Server Boosts' },
+                        { label: 'Nitro Basic', value: 'Nitr0 Basic', description: 'Basic perks without boosts' }
                     ])
             );
-            return interaction.reply({ content: 'Select the type of Nitro you want:', components: [menu], ephemeral: true });
+            return interaction.reply({ content: ' Please select the type of Nitro you need:', components: [menu], ephemeral: true });
         }
 
         if (id === 'panel_deco') {
             session.category = 'Dec0';
             session.product = 'Dec0';
             session.quantity = '1x';
-            return showPaymentMenu(interaction);
+            return sendPaymentMenu(interaction);
         }
 
         if (id === 'panel_boost') {
             session.category = 'Server Boost';
             session.product = 'Server Boost';
-            return showPaymentMenu(interaction);
+            return sendPaymentMenu(interaction);
         }
 
         if (id === 'panel_other') {
             session.category = 'Other';
             const modal = new ModalBuilder()
                 .setCustomId('modal_other')
-                .setTitle('Order Request');
+                .setTitle('Order Request Details');
 
             const itemInput = new TextInputBuilder()
                 .setCustomId('other_product')
                 .setLabel('What do you want to buy?')
                 .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. Netflix, Spotify, Account...')
                 .setRequired(true);
 
             const budgetInput = new TextInputBuilder()
                 .setCustomId('other_budget')
                 .setLabel('What is your budget?')
                 .setStyle(TextInputStyle.Short)
+                .setPlaceholder('e.g. $10, 50 RON...')
                 .setRequired(true);
 
             modal.addComponents(
@@ -144,34 +177,35 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        // --- TICKET CONFIRMATION BUTTONS ---
+        // Ticket Finalization
         if (id === 'confirm_ticket') {
-            return createTicketChannel(interaction, session);
+            return executeTicketCreation(interaction, session);
         }
 
         if (id === 'cancel_ticket') {
             userSessions.delete(userId);
-            return interaction.update({ content: '❌ Action cancelled.', embeds: [], components: [] });
+            return interaction.reply({ content: '❌ Order setup cancelled.', ephemeral: true });
         }
 
-        // --- BUTTONS INSIDE OPENED TICKET ---
+        // Buttons Inside Active Ticket
         if (id === 't_claim') {
             return interaction.reply({ content: `🔔 Ticket claimed by <@${interaction.user.id}>!`, ephemeral: false });
         }
         if (id === 't_close') {
-            await interaction.reply({ content: '🔒 Ticket will be closed in 5 seconds...' });
+            await interaction.reply({ content: '🔒 Closing ticket in 5 seconds...' });
             setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
             return;
         }
         if (id === 't_ping_staff') {
-            return interaction.reply({ content: `<@&${STAFF_ROLE_ID}> A customer needs assistance!`, ephemeral: false });
+            return interaction.reply({ content: `<@&${CONFIG.STAFF_ROLE_ID}> Customer requires staff assistance!`, ephemeral: false });
         }
         if (['t_transcript', 't_add_user', 't_remove_user', 't_change_qty', 't_mm'].includes(id)) {
-            return interaction.reply({ content: `Selected option: **${id.replace('t_', '')}**`, ephemeral: true });
+            const actionName = id.replace('t_', '').toUpperCase();
+            return interaction.reply({ content: `ℹ️ Selected action: **${actionName}**`, ephemeral: true });
         }
     }
 
-    // --- 2. SELECT MENUS ---
+    // --- C. SELECT MENUS ---
     if (interaction.isStringSelectMenu()) {
         const id = interaction.customId;
         const value = interaction.values[0];
@@ -183,14 +217,14 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('select_nitro_qty')
                     .setPlaceholder('Select Quantity')
                     .addOptions([
-                        { label: '1x', value: '1x' },
-                        { label: '2x', value: '2x' },
-                        { label: '3x', value: '3x' },
-                        { label: '4x', value: '4x' },
-                        { label: 'Custom Amount', value: 'custom' }
+                        { label: '1x Quantity', value: '1x' },
+                        { label: '2x Quantity', value: '2x' },
+                        { label: '3x Quantity', value: '3x' },
+                        { label: '4x Quantity', value: '4x' },
+                        { label: 'Custom Amount', value: 'custom', description: 'Specify custom quantity' }
                     ])
             );
-            return interaction.update({ content: `Selected **${value}**. Choose quantity:`, components: [row] });
+            return interaction.reply({ content: ` Selected: **${value}**. Now select the quantity:`, components: [row], ephemeral: true });
         }
 
         if (id === 'select_nitro_qty') {
@@ -200,14 +234,14 @@ client.on('interactionCreate', async (interaction) => {
                     .setTitle('Custom Nitro Quantity');
                 const qtyInput = new TextInputBuilder()
                     .setCustomId('nitro_custom_qty')
-                    .setLabel('Enter quantity:')
+                    .setLabel('Enter quantity count:')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true);
                 modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
                 return interaction.showModal(modal);
             } else {
                 session.quantity = value;
-                return showPaymentMenu(interaction);
+                return sendPaymentMenu(interaction);
             }
         }
 
@@ -220,14 +254,14 @@ client.on('interactionCreate', async (interaction) => {
                         .setCustomId('select_boost_duration')
                         .setPlaceholder('Select Boost Duration')
                         .addOptions([
-                            { label: '1 Month', value: '1 Month' },
-                            { label: '3 Months', value: '3 Months' }
+                            { label: '1 Month Duration', value: '1 Month' },
+                            { label: '3 Months Duration', value: '3 Months' }
                         ])
                 );
-                return interaction.update({ content: 'Select duration for Server Boosts:', components: [row] });
+                return interaction.reply({ content: ' Select duration for your Server Boosts:', components: [row], ephemeral: true });
             }
 
-            return showConfirmation(interaction, session);
+            return sendConfirmationSummary(interaction, session);
         }
 
         if (id === 'select_boost_duration') {
@@ -239,10 +273,10 @@ client.on('interactionCreate', async (interaction) => {
                     .addOptions([
                         { label: '14x Boosts', value: '14x' },
                         { label: '28x Boosts', value: '28x' },
-                        { label: 'Custom Amount', value: 'custom' }
+                        { label: 'Custom Amount', value: 'custom', description: 'Enter specific boost amount' }
                     ])
             );
-            return interaction.update({ content: 'Select how many boosts you need:', components: [row] });
+            return interaction.reply({ content: ' Select how many boosts you want:', components: [row], ephemeral: true });
         }
 
         if (id === 'select_boost_qty') {
@@ -259,36 +293,40 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.showModal(modal);
             } else {
                 session.quantity = value;
-                return showConfirmation(interaction, session);
+                return sendConfirmationSummary(interaction, session);
             }
         }
     }
 
-    // --- 3. MODAL SUBMITS ---
+    // --- D. MODALS SUBMITS ---
     if (interaction.isModalSubmit()) {
         const id = interaction.customId;
 
         if (id === 'modal_nitro_qty') {
             session.quantity = `${interaction.fields.getTextInputValue('nitro_custom_qty')}x`;
-            return showPaymentMenu(interaction);
+            return sendPaymentMenu(interaction);
         }
 
         if (id === 'modal_boost_qty') {
             session.quantity = `${interaction.fields.getTextInputValue('boost_custom_qty')}x`;
-            return showConfirmation(interaction, session);
+            return sendConfirmationSummary(interaction, session);
         }
 
         if (id === 'modal_other') {
             session.product = interaction.fields.getTextInputValue('other_product');
             session.budget = interaction.fields.getTextInputValue('other_budget');
             session.quantity = '1x';
-            return showPaymentMenu(interaction);
+            return sendPaymentMenu(interaction);
         }
     }
 });
 
-// Display Payment Select Menu
-async function showPaymentMenu(interaction) {
+// ==============================================================================
+// 6. HELPER FUNCTIONS FOR WORKFLOW MESSAGES
+// ==============================================================================
+
+// Send Payment Select Menu Ephemerally
+async function sendPaymentMenu(interaction) {
     const row = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
             .setCustomId('select_payment')
@@ -300,56 +338,55 @@ async function showPaymentMenu(interaction) {
             ])
     );
 
-    const payload = { content: 'Please select your preferred payment method:', components: [row], ephemeral: true };
+    const payload = { content: '💳 Please select your preferred payment method:', components: [row], ephemeral: true };
+    
     if (interaction.replied || interaction.deferred) {
         await interaction.followUp(payload);
-    } else if (interaction.isStringSelectMenu() || interaction.isButton()) {
-        await interaction.update(payload);
     } else {
         await interaction.reply(payload);
     }
 }
 
-// Display Summary & Ticket Creation Confirmation
-async function showConfirmation(interaction, session) {
+// Send Order Summary Ephemerally
+async function sendConfirmationSummary(interaction, session) {
     const embed = new EmbedBuilder()
-        .setTitle('🛒 Ticket Confirmation')
-        .setColor('#2b2d31')
+        .setTitle('🛒 Order Confirmation Summary')
+        .setColor(CONFIG.COLOR_PRIMARY)
         .addFields(
-            { name: 'Category', value: session.category || 'N/A', inline: true },
-            { name: 'Product', value: session.product || 'N/A', inline: true },
-            { name: 'Quantity', value: session.quantity || '1x', inline: true },
-            { name: 'Payment Method', value: session.payment || 'N/A', inline: true },
-            { name: 'Price', value: 'Discuss in ticket', inline: true }
+            { name: 'Category', value: `\`${session.category || 'N/A'}\``, inline: true },
+            { name: 'Product', value: `\`${session.product || 'N/A'}\``, inline: true },
+            { name: 'Quantity', value: `\`${session.quantity || '1x'}\``, inline: true },
+            { name: 'Payment Method', value: `\`${session.payment || 'N/A'}\``, inline: true },
+            { name: 'Price', value: '`Discuss in ticket`', inline: true }
         );
 
-    if (session.duration) embed.addFields({ name: 'Duration', value: session.duration, inline: true });
-    if (session.budget) embed.addFields({ name: 'User Budget', value: session.budget, inline: true });
+    if (session.duration) embed.addFields({ name: 'Duration', value: `\`${session.duration}\``, inline: true });
+    if (session.budget) embed.addFields({ name: 'Budget', value: `\`${session.budget}\``, inline: true });
 
     const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('confirm_ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Success),
         new ButtonBuilder().setCustomId('cancel_ticket').setLabel('Cancel').setStyle(ButtonStyle.Danger)
     );
 
-    const payload = { content: 'Please review your order details before opening a ticket:', embeds: [embed], components: [row], ephemeral: true };
+    const payload = { content: 'Please review your selection before opening the ticket:', embeds: [embed], components: [row], ephemeral: true };
     
-    if (interaction.isModalSubmit()) {
-        await interaction.reply(payload);
+    if (interaction.replied || interaction.deferred) {
+        await interaction.followUp(payload);
     } else {
-        await interaction.update(payload);
+        await interaction.reply(payload);
     }
 }
 
-// Create Ticket Channel & Send UI (Matches original reference)
-async function createTicketChannel(interaction, session) {
+// Create Ticket Channel & Send UI Matching Reference
+async function executeTicketCreation(interaction, session) {
     const guild = interaction.guild;
     const user = interaction.user;
 
-    // Get specific Role Ping ID based on selected Category
-    let pingRoleId = PINGS.OTHER;
-    if (session.category === 'Nitr0') pingRoleId = PINGS.NITRO;
-    if (session.category === 'Dec0') pingRoleId = PINGS.DECO;
-    if (session.category === 'Server Boost') pingRoleId = PINGS.BOOST;
+    // Ping allocation by category
+    let pingRoleId = CONFIG.PINGS.OTHER;
+    if (session.category === 'Nitr0') pingRoleId = CONFIG.PINGS.NITRO;
+    if (session.category === 'Dec0') pingRoleId = CONFIG.PINGS.DECO;
+    if (session.category === 'Server Boost') pingRoleId = CONFIG.PINGS.BOOST;
 
     const channelName = `${session.category.toLowerCase().replace(/\s+/g, '')}-${user.username}`;
 
@@ -366,22 +403,21 @@ async function createTicketChannel(interaction, session) {
                 allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.AttachFiles],
             },
             {
-                id: STAFF_ROLE_ID,
+                id: CONFIG.STAFF_ROLE_ID,
                 allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ManageMessages],
             }
         ],
     });
 
-    // Random UUID Generator
     const randomUUID = Math.random().toString(36).substring(2, 10) + '-ec14-40a6-9794-' + Math.random().toString(36).substring(2, 12);
 
-    // Matches Ticket Embed Layout from image
+    // Embed formatting matching reference layout
     const ticketEmbed = new EmbedBuilder()
-        .setColor('#5865F2')
+        .setColor(CONFIG.COLOR_TICKET)
         .setDescription(`🦋 | **${session.product}**\n<@${user.id}> • \`${randomUUID}\`\n\n**Method:** ${session.payment}\n**Quantity:** ${session.quantity}\n**Product:** ${session.product}\n**Amount:** **Discuss in ticket**`)
-        .setImage('https://i.imgur.com/8Q73NqF.png');
+        .setImage(CONFIG.BANNER_URL);
 
-    // Ticket Action Buttons (Matches UI image)
+    // Matching UI Buttons
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('t_claim').setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
         new ButtonBuilder().setCustomId('t_transcript').setLabel('Transcript').setStyle(ButtonStyle.Secondary).setEmoji('📋')
@@ -401,7 +437,6 @@ async function createTicketChannel(interaction, session) {
         new ButtonBuilder().setCustomId('t_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒')
     );
 
-    // Send Pings and Embed
     await channel.send({ 
         content: `<@${user.id}> <@&${pingRoleId}>`, 
         embeds: [ticketEmbed], 
@@ -410,12 +445,14 @@ async function createTicketChannel(interaction, session) {
 
     userSessions.delete(user.id);
 
-    return interaction.update({ 
-        content: `✅ Your ticket has been created here: ${channel}`, 
-        embeds: [], 
-        components: [] 
+    return interaction.reply({ 
+        content: `✅ Your ticket has been created: ${channel}`, 
+        ephemeral: true 
     });
 }
 
+// ==============================================================================
+// 7. BOT LOGIN
+// ==============================================================================
 client.login(process.env.DISCORD_TOKEN);
             
