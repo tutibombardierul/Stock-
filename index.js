@@ -15,7 +15,7 @@ const {
 const express = require('express');
 require('dotenv').config();
 
-// Simple Web Server to keep Render service alive
+// Web server to keep Render service alive
 const app = express();
 app.get('/', (req, res) => res.send('VNS Market Bot is Online!'));
 app.listen(process.env.PORT || 3000);
@@ -41,8 +41,17 @@ const PINGS = {
 // Temporary in-memory session store
 const userSessions = new Map();
 
-client.on('ready', () => {
+// BOT READY EVENT + CLEAR OLD SLASH COMMANDS
+client.on('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}!`);
+
+    try {
+        // Clears all previous global Slash Commands
+        await client.application.commands.set([]);
+        console.log('🧹 Old Slash Commands cleared successfully from Discord!');
+    } catch (error) {
+        console.error('Error clearing old commands:', error);
+    }
 });
 
 // Command to send Main Ticket Panel (!setup-tickets)
@@ -359,13 +368,13 @@ async function createTicketChannel(interaction, session) {
     // Random UUID Generator
     const randomUUID = Math.random().toString(36).substring(2, 10) + '-ec14-40a6-9794-' + Math.random().toString(36).substring(2, 12);
 
-    // Matches Ticket Embed Layout
+    // Matches Ticket Embed Layout from image
     const ticketEmbed = new EmbedBuilder()
         .setColor('#5865F2')
         .setDescription(`🦋 | **${session.product}**\n<@${user.id}> • \`${randomUUID}\`\n\n**Method:** ${session.payment}\n**Quantity:** ${session.quantity}\n**Product:** ${session.product}\n**Amount:** **Discuss in ticket**`)
         .setImage('https://i.imgur.com/8Q73NqF.png');
 
-    // Ticket Action Buttons
+    // Ticket Action Buttons (Matches UI image)
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('t_claim').setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
         new ButtonBuilder().setCustomId('t_transcript').setLabel('Transcript').setStyle(ButtonStyle.Secondary).setEmoji('📋')
@@ -402,4 +411,4 @@ async function createTicketChannel(interaction, session) {
 }
 
 client.login(process.env.DISCORD_TOKEN);
-                
+            
