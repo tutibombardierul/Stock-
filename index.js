@@ -49,7 +49,8 @@ const CONFIG = {
     COLOR_PRIMARY: '#2B2D31',
     COLOR_TICKET: '#5865F2',
     
-    OWNER_ID: '1534540515477819422',
+    // UPDATED OWNER ID
+    OWNER_ID: '1526468347162788096',
     STAFF_ROLE_ID: '1534625944017571941',
     TRANSCRIPT_CHANNEL_ID: '1534479829225832528', 
 
@@ -89,18 +90,18 @@ const spamTracker = new Map();
 const recentJoins = [];
 
 let DB = {
-    staffStats: {},    // { staffId: { claimed: 0, closed: 0 } }
-    ticketBans: [],     // [ userId1, userId2 ]
-    clientHistory: {},  // { userId: { total: 0, closed: 0 } }
-    notes: {}           // { channelId: [ "note 1", "note 2" ] }
+    staffStats: {},    
+    ticketBans: [],     
+    clientHistory: {},  
+    notes: {}           
 };
 
 // Helper: Owner / Admin Permission Check
-function isOwnerOrAdmin(interaction) {
-    if (!interaction) return false;
-    return interaction.user.id === CONFIG.OWNER_ID || 
-           interaction.guild?.ownerId === interaction.user.id || 
-           interaction.member?.permissions.has(PermissionFlagsBits.Administrator);
+function isOwnerOrAdmin(user, member, guild) {
+    if (!user) return false;
+    return user.id === CONFIG.OWNER_ID || 
+           guild?.ownerId === user.id || 
+           member?.permissions?.has(PermissionFlagsBits.Administrator);
 }
 
 // Helper: Staff Check
@@ -109,10 +110,25 @@ function isStaff(member) {
     return member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || member.id === CONFIG.OWNER_ID || member.permissions.has(PermissionFlagsBits.Administrator);
 }
 
+// Helper: Build Help Embed
+function buildHelpEmbed() {
+    return new EmbedBuilder()
+        .setTitle(`${CONFIG.EMOJIS.SPARKLES} VNS Market - Help & Commands`)
+        .setColor(CONFIG.COLOR_PRIMARY)
+        .setDescription('Here are the available commands you can use with prefix `!` or `/`:')
+        .addFields(
+            { name: '🎫 Setup & Admin', value: '`!setup-tickets` / `/setup-tickets` - Deploy the main ticket panel\n`!owner-panel` / `/owner-panel` - Owner emergency panel\n`!purge-inactive` - Auto-close inactive tickets', inline: false },
+            { name: '🛠️ Ticket Commands', value: '`!rename <name>` / `/rename` - Rename channel\n`!note <text>` / `/note` - Add internal staff note\n`!transfer <user>` - Transfer ticket\n`!staff-stats` - View staff activity statistics', inline: false },
+            { name: '🛡️ Security (Slash Only)', value: '`/antilinks`, `/antispam`, `/antiraid` - Toggle security settings', inline: false }
+        )
+        .setFooter({ text: 'VNS Market Bot Support' });
+}
+
 // ==============================================================================
 // 3. SLASH COMMANDS DEFINITION & REGISTRATION
 // ==============================================================================
 const slashCommands = [
+    new SlashCommandBuilder().setName('help').setDescription('Display bot commands and help info'),
     new SlashCommandBuilder().setName('setup-tickets').setDescription('Deploy the official VNS Market Tickets panel (Owner/Admin Only)'),
     new SlashCommandBuilder().setName('rename').setDescription('Rename current ticket channel')
         .addStringOption(opt => opt.setName('name').setDescription('New channel name').setRequired(true)),
@@ -156,7 +172,7 @@ client.once('ready', async () => {
 });
 
 // ==============================================================================
-// 4. SCANNER FOR INACTIVE CHANNELS (AUTO-CLOSE WITH PING)
+// 4. SCANNER FOR INACTIVE CHANNELS
 // ==============================================================================
 async function checkInactiveTickets(force = false) {
     client.guilds.cache.forEach(async (guild) => {
@@ -200,7 +216,7 @@ async function checkInactiveTickets(force = false) {
 }
 
 // ==============================================================================
-// 5. HELPER: NUMPAD BUILDER
+// 5. NUMPAD UI BUILDER
 // ==============================================================================
 function buildNumpadUI(currentVal = '') {
     const displayVal = currentVal || '0';
@@ -238,7 +254,7 @@ function buildNumpadUI(currentVal = '') {
 }
 
 // ==============================================================================
-// 6. MAIN PANEL BUILDER (SELECT MENU + BUTTONS)
+// 6. MAIN PANEL BUILDER
 // ==============================================================================
 function buildMainPanel() {
     const embed = new EmbedBuilder()
@@ -311,15 +327,19 @@ async function generateAndSendTranscript(channel, closedBy) {
 }
 
 // ==============================================================================
-// 8. INTERACTION ENGINE
+// 8. INTERACTION ENGINE (SLASH COMMANDS & BUTTONS)
 // ==============================================================================
 client.on('interactionCreate', async (interaction) => {
     // A. SLASH COMMANDS
     if (interaction.isChatInputCommand()) {
         const cmd = interaction.commandName;
 
+        if (cmd === 'help') {
+            return interaction.reply({ embeds: [buildHelpEmbed()] });
+        }
+
         if (cmd === 'setup-tickets') {
-            if (!isOwnerOrAdmin(interaction)) {
+            if (!isOwnerOrAdmin(interaction.user, interaction.member, interaction.guild)) {
                 return interaction.reply({ content: '❌ Access Denied (Owner/Admin Only).', ephemeral: true });
             }
             return interaction.reply(buildMainPanel());
@@ -333,7 +353,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (cmd === 'owner-panel') {
-            if (!isOwnerOrAdmin(interaction)) {
+            if (!isOwnerOrAdmin(interaction.user, interaction.member, interaction.guild)) {
                 return interaction.reply({ content: '❌ Access Denied (Owner/Admin Only).', ephemeral: true });
             }
 
@@ -397,13 +417,13 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (cmd === 'purge-inactive') {
-      if (!isOwnerOrAdmin(interaction)) return interaction.reply({ content: '❌ Access Denied.', ephemeral: true });
+            if (!isOwnerOrAdmin(interaction.user, interaction.member, interaction.guild)) return interaction.reply({ content: '❌ Access Denied.', ephemeral: true });
             await interaction.reply({ content: '🧹 Purging inactive tickets...' });
             checkInactiveTickets(true);
         }
 
         if (['antilinks', 'antispam', 'antiraid'].includes(cmd)) {
-            if (!isOwnerOrAdmin(interaction)) return interaction.reply({ content: '❌ Only Owner/Admin can modify security settings!', ephemeral: true });
+            if (!isOwnerOrAdmin(interaction.user, interaction.member, interaction.guild)) return interaction.reply({ content: '❌ Only Owner/Admin can modify security settings!', ephemeral: true });
             const status = interaction.options.getBoolean('status');
             if (cmd === 'antilinks') CONFIG.SECURITY.ANTI_LINK = status;
             if (cmd === 'antispam') CONFIG.SECURITY.ANTI_SPAM = status;
@@ -425,7 +445,6 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.reply({ content: '🔴 You are blacklisted from opening tickets on this server!', ephemeral: true });
         }
 
-        // NUMPAD BUTTONS
         if (id.startsWith('num_')) {
             if (!session.customQtyBuffer) session.customQtyBuffer = '';
 
@@ -457,7 +476,6 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.update(buildNumpadUI(session.customQtyBuffer));
         }
 
-        // PANEL CATEGORIES
         if (id === 'panel_nitro') {
             session.category = 'Nitr0';
             const menu = new ActionRowBuilder().addComponents(
@@ -500,7 +518,6 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Order setup cancelled.`, embeds: [], components: [] });
         }
 
-        // TICKET CHANNEL ACTIONS
         if (id === 't_claim') {
             if (!DB.staffStats[userId]) DB.staffStats[userId] = { claimed: 0, closed: 0 };
             DB.staffStats[userId].claimed++;
@@ -783,10 +800,49 @@ async function executeTicketCreation(interaction, session) {
 }
 
 // ==============================================================================
-// 10. SECURITY LISTENERS (ANTI-LINK, ANTI-SPAM, ANTI-RAID)
+// 10. MESSAGE LISTENER (PREFIX COMMANDS + SECURITY)
 // ==============================================================================
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
+
+    // A. PREFIX COMMAND HANDLER (!help, !setup-tickets, !owner-panel)
+    const content = message.content.trim();
+    if (content.startsWith('!')) {
+        const args = content.slice(1).trim().split(/ +/);
+        const command = args.shift().toLowerCase();
+
+        if (command === 'help') {
+            return message.channel.send({ embeds: [buildHelpEmbed()] });
+        }
+
+        if (command === 'setup-tickets') {
+            if (!isOwnerOrAdmin(message.author, message.member, message.guild)) {
+                return message.channel.send('❌ Access Denied (Owner/Admin Only).');
+            }
+            return message.channel.send(buildMainPanel());
+        }
+
+        if (command === 'owner-panel') {
+            if (!isOwnerOrAdmin(message.author, message.member, message.guild)) {
+                return message.channel.send('❌ Access Denied (Owner/Admin Only).');
+            }
+
+            const embed = new EmbedBuilder()
+                .setTitle('👑 VNS Market - Owner Emergency Panel')
+                .setDescription('Select an administrative action for this channel/client:')
+                .setColor('#FF0000');
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId('op_force_close').setLabel('Force Close').setStyle(ButtonStyle.Danger).setEmoji('🔒'),
+                new ButtonBuilder().setCustomId('op_reassign').setLabel('Reassign Staff').setStyle(ButtonStyle.Secondary).setEmoji('🔄'),
+                new ButtonBuilder().setCustomId('op_ban_ticket').setLabel('Ban from Tickets').setStyle(ButtonStyle.Primary).setEmoji('🚫')
+            );
+
+            return message.channel.send({ embeds: [embed], components: [row] });
+        }
+    }
+
+    // B. SECURITY CHECKS (ANTI-LINK, ANTI-SPAM)
     if (message.author.id === CONFIG.OWNER_ID || isStaff(message.member)) return;
 
     if (CONFIG.SECURITY.ANTI_LINK) {
@@ -829,4 +885,4 @@ client.on('guildMemberAdd', async (member) => {
 // ==============================================================================
 // 11. BOT LOGIN
 // ==============================================================================
-client.login(CONFIG.TOKEN);                                                          
+client.login(CONFIG.TOKEN);
