@@ -1,13 +1,14 @@
 {
   "name": "vns-market-bot",
   "version": "1.0.0",
-  "description": "Bot AI pentru VNS Market",
+  "description": "Discord Ticket Bot for VNS Market",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.0",
-    "openai": "^4.28.0"
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
   }
 }
