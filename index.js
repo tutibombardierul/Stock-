@@ -25,7 +25,7 @@ const express = require('express');
 require('dotenv').config();
 
 const app = express();
-app.get('/', (req, res) => res.send('⚡ VNS Market Bot este online și gata de lucru!'));
+app.get('/', (req, res) => res.send('⚡ VNS Market Bot is online and ready!'));
 app.listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -83,7 +83,7 @@ const CONFIG = {
     }
 };
 
-// Baze de date simulate local (în memorie)
+// In-Memory Databases
 const userSessions = new Map();
 const spamTracker = new Map();
 const recentJoins = [];
@@ -92,34 +92,48 @@ let DB = {
     staffStats: {},    // { staffId: { claimed: 0, closed: 0 } }
     ticketBans: [],     // [ userId1, userId2 ]
     clientHistory: {},  // { userId: { total: 0, closed: 0 } }
-    notes: {}           // { channelId: [ "nota 1", "nota 2" ] }
+    notes: {}           // { channelId: [ "note 1", "note 2" ] }
 };
+
+// Helper: Owner / Admin Permission Check
+function isOwnerOrAdmin(interaction) {
+    if (!interaction) return false;
+    return interaction.user.id === CONFIG.OWNER_ID || 
+           interaction.guild?.ownerId === interaction.user.id || 
+           interaction.member?.permissions.has(PermissionFlagsBits.Administrator);
+}
+
+// Helper: Staff Check
+function isStaff(member) {
+    if (!member) return false;
+    return member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || member.id === CONFIG.OWNER_ID || member.permissions.has(PermissionFlagsBits.Administrator);
+}
 
 // ==============================================================================
 // 3. SLASH COMMANDS DEFINITION & REGISTRATION
 // ==============================================================================
 const slashCommands = [
-    new SlashCommandBuilder().setName('setup-tickets').setDescription('Deploy the official VNS Market Tickets panel (Owner Only)'),
-    new SlashCommandBuilder().setName('rename').setDescription('Redenumește canalul de ticket')
-        .addStringOption(opt => opt.setName('nume').setDescription('Noul nume').setRequired(true)),
-    new SlashCommandBuilder().setName('owner-panel').setDescription('Meniu de control urgență (Owner Only)'),
-    new SlashCommandBuilder().setName('staff-stats').setDescription('Vezi statisticile echipei de suport')
-        .addUserOption(opt => opt.setName('user').setDescription('Membru staff')),
-    new SlashCommandBuilder().setName('note').setDescription('Adaugă o notă internă în ticket (vizibilă doar staff)')
-        .addStringOption(opt => opt.setName('text').setDescription('Textul notiței').setRequired(true)),
-    new SlashCommandBuilder().setName('transfer').setDescription('Transferă biletul către alt membru staff')
-        .addUserOption(opt => opt.setName('staff').setDescription('Selectează noul staff').setRequired(true)),
-    new SlashCommandBuilder().setName('client-history').setDescription('Vezi istoricul unui client')
-        .addUserOption(opt => opt.setName('user').setDescription('Selectează clientul').setRequired(true)),
-    new SlashCommandBuilder().setName('purge-inactive').setDescription('Închide toate tichetele inactive (Owner Only)'),
+    new SlashCommandBuilder().setName('setup-tickets').setDescription('Deploy the official VNS Market Tickets panel (Owner/Admin Only)'),
+    new SlashCommandBuilder().setName('rename').setDescription('Rename current ticket channel')
+        .addStringOption(opt => opt.setName('name').setDescription('New channel name').setRequired(true)),
+    new SlashCommandBuilder().setName('owner-panel').setDescription('Emergency control panel (Owner/Admin Only)'),
+    new SlashCommandBuilder().setName('staff-stats').setDescription('View staff team statistics')
+        .addUserOption(opt => opt.setName('user').setDescription('Target staff member')),
+    new SlashCommandBuilder().setName('note').setDescription('Add an internal note to the ticket (Staff Only)')
+        .addStringOption(opt => opt.setName('text').setDescription('Note content').setRequired(true)),
+    new SlashCommandBuilder().setName('transfer').setDescription('Transfer ticket to another staff member')
+        .addUserOption(opt => opt.setName('staff').setDescription('Select new staff').setRequired(true)),
+    new SlashCommandBuilder().setName('client-history').setDescription('View a client ticket history')
+        .addUserOption(opt => opt.setName('user').setDescription('Select client').setRequired(true)),
+    new SlashCommandBuilder().setName('purge-inactive').setDescription('Close all inactive tickets (Owner/Admin Only)'),
     
-    // Securitate Owner
-    new SlashCommandBuilder().setName('antiliinks').setDescription('Toggle Anti-Links (Owner Only)')
-        .addBooleanOption(opt => opt.setName('status').setDescription('Activ/Inactiv').setRequired(true)),
-    new SlashCommandBuilder().setName('antispam').setDescription('Toggle Anti-Spam (Owner Only)')
-        .addBooleanOption(opt => opt.setName('status').setDescription('Activ/Inactiv').setRequired(true)),
-    new SlashCommandBuilder().setName('antiraid').setDescription('Toggle Anti-Raid (Owner Only)')
-        .addBooleanOption(opt => opt.setName('status').setDescription('Activ/Inactiv').setRequired(true))
+    // Security Commands
+    new SlashCommandBuilder().setName('antilinks').setDescription('Toggle Anti-Links Protection (Owner Only)')
+        .addBooleanOption(opt => opt.setName('status').setDescription('Enabled or Disabled').setRequired(true)),
+    new SlashCommandBuilder().setName('antispam').setDescription('Toggle Anti-Spam Protection (Owner Only)')
+        .addBooleanOption(opt => opt.setName('status').setDescription('Enabled or Disabled').setRequired(true)),
+    new SlashCommandBuilder().setName('antiraid').setDescription('Toggle Anti-Raid Protection (Owner Only)')
+        .addBooleanOption(opt => opt.setName('status').setDescription('Enabled or Disabled').setRequired(true))
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
@@ -130,19 +144,19 @@ client.once('ready', async () => {
     const rest = new REST({ version: '10' }).setToken(CONFIG.TOKEN || process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationGuildCommands(CONFIG.CLIENT_ID, CONFIG.GUILD_ID), { body: slashCommands });
-        console.log(`${CONFIG.EMOJIS.SPARKLES} Slash Commands înregistrate cu succes!`);
+        console.log(`${CONFIG.EMOJIS.SPARKLES} Slash Commands registered successfully!`);
     } catch (error) {
-        console.error('❌ Eroare la înregistrarea comenzilor:', error);
+        console.error('❌ Error registering commands:', error);
     }
 
     if (CONFIG.AUTO_CLOSE.ENABLED) {
         setInterval(checkInactiveTickets, CONFIG.AUTO_CLOSE.CHECK_INTERVAL_MINUTES * 60 * 1000);
-        console.log(`⏳ Auto-Close Scanner activat!`);
+        console.log(`⏳ Auto-Close Scanner active!`);
     }
 });
 
 // ==============================================================================
-// 4. SCANNER PENTRU CANALE INACTIVE (AUTO-CLOSE CU PING)
+// 4. SCANNER FOR INACTIVE CHANNELS (AUTO-CLOSE WITH PING)
 // ==============================================================================
 async function checkInactiveTickets(force = false) {
     client.guilds.cache.forEach(async (guild) => {
@@ -161,7 +175,7 @@ async function checkInactiveTickets(force = false) {
                 const diffHours = diffMs / (1000 * 60 * 60);
 
                 if (diffHours >= CONFIG.AUTO_CLOSE.CLOSE_HOURS || force) {
-                    await channel.send(`${CONFIG.EMOJIS.CLOSE} 🔒 **Ticket închis automat din cauza inactivității**.`);
+                    await channel.send(`${CONFIG.EMOJIS.CLOSE} 🔒 **Ticket closed automatically due to inactivity.**`);
                     await generateAndSendTranscript(channel, client.user);
                     setTimeout(() => channel.delete().catch(() => {}), 5000);
                 } 
@@ -172,14 +186,14 @@ async function checkInactiveTickets(force = false) {
                     const userPing = ownerOverwrite ? `<@${ownerOverwrite.id}>` : '';
 
                     const warningEmbed = new EmbedBuilder()
-                        .setTitle(`${CONFIG.EMOJIS.WARNING} Inactivity Warning / Avertisment Inactivitate`)
-                        .setDescription(`Acest ticket nu a înregistrat activitate în ultimele **${CONFIG.AUTO_CLOSE.WARNING_HOURS} ore**.\n\nDacă nu există răspuns, ticketul se închide automat în **${CONFIG.AUTO_CLOSE.CLOSE_HOURS - CONFIG.AUTO_CLOSE.WARNING_HOURS} ore**!`)
+                        .setTitle(`${CONFIG.EMOJIS.WARNING} Inactivity Warning`)
+                        .setDescription(`This ticket has not seen activity for the past **${CONFIG.AUTO_CLOSE.WARNING_HOURS} hours**.\n\nIf no response is received, it will automatically close in **${CONFIG.AUTO_CLOSE.CLOSE_HOURS - CONFIG.AUTO_CLOSE.WARNING_HOURS} hours**!`)
                         .setColor('#FFA500');
 
                     await channel.send({ content: `${userPing} INACTIVITY_WARNING`, embeds: [warningEmbed] });
                 }
             } catch (err) {
-                console.error(`Eroare inactivitate pe ${channel.name}:`, err);
+                console.error(`Inactivity scan error on ${channel.name}:`, err);
             }
         }
     });
@@ -191,8 +205,8 @@ async function checkInactiveTickets(force = false) {
 function buildNumpadUI(currentVal = '') {
     const displayVal = currentVal || '0';
     const embed = new EmbedBuilder()
-        .setTitle(`${CONFIG.EMOJIS.CHANGE_QTY} Introdu Cantitatea Dorită`)
-        .setDescription(`Folosește tastatura de mai jos pentru a selecta numărul de bucăți:\n\n\`\`\`\n > [ ${displayVal} ] \n\`\`\``)
+        .setTitle(`${CONFIG.EMOJIS.CHANGE_QTY} Select Quantity`)
+        .setDescription(`Use the keypad below to enter your desired quantity:\n\n\`\`\`\n > [ ${displayVal} ] \n\`\`\``)
         .setColor(CONFIG.COLOR_PRIMARY);
 
     const r1 = new ActionRowBuilder().addComponents(
@@ -216,30 +230,30 @@ function buildNumpadUI(currentVal = '') {
         new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Danger)
     );
     const r5 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('num_cancel').setLabel('Anulează').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.CROSS),
-        new ButtonBuilder().setCustomId('num_confirm').setLabel('Confirmă').setStyle(ButtonStyle.Success).setEmoji(CONFIG.EMOJIS.CHECK)
+        new ButtonBuilder().setCustomId('num_cancel').setLabel('Cancel').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.CROSS),
+        new ButtonBuilder().setCustomId('num_confirm').setLabel('Confirm').setStyle(ButtonStyle.Success).setEmoji(CONFIG.EMOJIS.CHECK)
     );
 
     return { content: '', embeds: [embed], components: [r1, r2, r3, r4, r5], ephemeral: true };
 }
 
 // ==============================================================================
-// 6. MAIN PANEL BUILDER (MENIU SELECT + BUTOANE)
+// 6. MAIN PANEL BUILDER (SELECT MENU + BUTTONS)
 // ==============================================================================
 function buildMainPanel() {
     const embed = new EmbedBuilder()
         .setTitle(`${CONFIG.EMOJIS.SPARKLES} **VNS Market Tickets** ${CONFIG.EMOJIS.SPARKLES}`)
-        .setDescription('🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below or use the dropdown to open a ticket.')
+        .setDescription('🌙 **Support Center** — Select a category below or use the dropdown to open a ticket.')
         .setColor(CONFIG.COLOR_PRIMARY);
 
     const selectMenu = new StringSelectMenuBuilder()
         .setCustomId('ticket_category_select')
-        .setPlaceholder('Alege categoria dorită din meniu...')
+        .setPlaceholder('Choose a category from the menu...')
         .addOptions([
             { label: 'Nitr0', value: 'panel_nitro', description: 'Nitr0 Boost / Basic', emoji: CONFIG.EMOJIS.NITRO },
-            { label: 'Dec0', value: 'panel_deco', description: 'Decoruri Profil & Avatar', emoji: CONFIG.EMOJIS.DECO },
-            { label: 'Server Boost', value: 'panel_boost', description: 'Boost-uri pentru serverul tău', emoji: CONFIG.EMOJIS.BOOST },
-            { label: 'Other', value: 'panel_other', description: 'Alte servicii sau ajutor', emoji: CONFIG.EMOJIS.OTHER }
+            { label: 'Dec0', value: 'panel_deco', description: 'Profile Decorations & Effects', emoji: CONFIG.EMOJIS.DECO },
+            { label: 'Server Boost', value: 'panel_boost', description: 'Boosts for your server', emoji: CONFIG.EMOJIS.BOOST },
+            { label: 'Other', value: 'panel_other', description: 'Other services or inquiries', emoji: CONFIG.EMOJIS.OTHER }
         ]);
 
     const rowSelect = new ActionRowBuilder().addComponents(selectMenu);
@@ -261,13 +275,13 @@ async function generateAndSendTranscript(channel, closedBy) {
     try {
         const messages = await channel.messages.fetch({ limit: 100 });
         let transcriptText = `==================================================\n`;
-        transcriptText += `📜 TRANSCRIPT PENTRU CANALUL: ${channel.name}\n`;
-        transcriptText += `🔒 Închis de: ${closedBy.tag || closedBy.username || 'SYSTEM'} (${closedBy.id})\n`;
-        transcriptText += `📅 Data: ${new Date().toLocaleString('ro-RO')}\n`;
+        transcriptText += `📜 TRANSCRIPT FOR CHANNEL: ${channel.name}\n`;
+        transcriptText += `🔒 Closed by: ${closedBy.tag || closedBy.username || 'SYSTEM'} (${closedBy.id})\n`;
+        transcriptText += `📅 Date: ${new Date().toISOString()}\n`;
         transcriptText += `==================================================\n\n`;
 
         messages.reverse().forEach(msg => {
-            transcriptText += `[${msg.createdAt.toLocaleString('ro-RO')}] ${msg.author.tag}: ${msg.content}\n`;
+            transcriptText += `[${msg.createdAt.toLocaleString('en-US')}] ${msg.author.tag}: ${msg.content}\n`;
             if (msg.attachments.size > 0) {
                 msg.attachments.forEach(att => transcriptText += `   📎 Attachment: ${att.url}\n`);
             }
@@ -292,7 +306,7 @@ async function generateAndSendTranscript(channel, closedBy) {
             }
         }
     } catch (error) {
-        console.error('❌ Eroare transcript:', error);
+        console.error('❌ Transcript error:', error);
     }
 }
 
@@ -305,23 +319,27 @@ client.on('interactionCreate', async (interaction) => {
         const cmd = interaction.commandName;
 
         if (cmd === 'setup-tickets') {
-            if (interaction.user.id !== CONFIG.OWNER_ID) return interaction.reply({ content: '❌ Acces interzis (Doar Owner).', ephemeral: true });
+            if (!isOwnerOrAdmin(interaction)) {
+                return interaction.reply({ content: '❌ Access Denied (Owner/Admin Only).', ephemeral: true });
+            }
             return interaction.reply(buildMainPanel());
         }
 
         if (cmd === 'rename') {
-            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Fără permisiune.', ephemeral: true });
-            const newName = interaction.options.getString('nume');
+            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ No permission.', ephemeral: true });
+            const newName = interaction.options.getString('name');
             await interaction.channel.setName(newName);
-            return interaction.reply({ content: `${CONFIG.EMOJIS.CHECK} Canal redenumit în: **${newName}**` });
+            return interaction.reply({ content: `${CONFIG.EMOJIS.CHECK} Channel renamed to: **${newName}**` });
         }
 
         if (cmd === 'owner-panel') {
-            if (interaction.user.id !== CONFIG.OWNER_ID) return interaction.reply({ content: '❌ Acces interzis (Doar Owner).', ephemeral: true });
+            if (!isOwnerOrAdmin(interaction)) {
+                return interaction.reply({ content: '❌ Access Denied (Owner/Admin Only).', ephemeral: true });
+            }
 
             const embed = new EmbedBuilder()
                 .setTitle('👑 VNS Market - Owner Emergency Panel')
-                .setDescription('Alege o acțiune rapidă de administrare pentru biletul curent:')
+                .setDescription('Select an administrative action for this channel/client:')
                 .setColor('#FF0000');
 
             const row = new ActionRowBuilder().addComponents(
@@ -338,10 +356,10 @@ client.on('interactionCreate', async (interaction) => {
             const stats = DB.staffStats[target.id] || { claimed: 0, closed: 0 };
 
             const embed = new EmbedBuilder()
-                .setTitle(`📊 Statistici Staff - ${target.username}`)
+                .setTitle(`📊 Staff Statistics - ${target.username}`)
                 .addFields(
-                    { name: '🎫 Bilete Preluat (Claimed)', value: `\`${stats.claimed}\``, inline: true },
-                    { name: '✅ Bilete Închise', value: `\`${stats.closed}\``, inline: true }
+                    { name: '🎫 Tickets Claimed', value: `\`${stats.claimed}\``, inline: true },
+                    { name: '✅ Tickets Closed', value: `\`${stats.closed}\``, inline: true }
                 )
                 .setColor('#00FF00');
 
@@ -349,18 +367,18 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (cmd === 'note') {
-            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Fără permisiune.', ephemeral: true });
+            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ No permission.', ephemeral: true });
             const text = interaction.options.getString('text');
             if (!DB.notes[interaction.channel.id]) DB.notes[interaction.channel.id] = [];
             DB.notes[interaction.channel.id].push(`[${interaction.user.username}]: ${text}`);
-            return interaction.reply({ content: `📝 **Notă internă adăugată:** ${text}`, ephemeral: true });
+            return interaction.reply({ content: `📝 **Internal note added:** ${text}`, ephemeral: true });
         }
 
         if (cmd === 'transfer') {
-            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ Fără permisiune.', ephemeral: true });
+            if (!isStaff(interaction.member)) return interaction.reply({ content: '❌ No permission.', ephemeral: true });
             const newStaff = interaction.options.getUser('staff');
             await interaction.channel.permissionOverwrites.edit(newStaff.id, { ViewChannel: true, SendMessages: true });
-            return interaction.reply({ content: `🔄 Ticketul a fost transferat către <@${newStaff.id}>!` });
+            return interaction.reply({ content: `🔄 Ticket transferred to <@${newStaff.id}>!` });
         }
 
         if (cmd === 'client-history') {
@@ -368,10 +386,10 @@ client.on('interactionCreate', async (interaction) => {
             const history = DB.clientHistory[target.id] || { total: 0, closed: 0 };
 
             const embed = new EmbedBuilder()
-                .setTitle(`👤 Istoric Client - ${target.username}`)
+                .setTitle(`👤 Client History - ${target.username}`)
                 .addFields(
-                    { name: '📂 Total Bilete Deschise', value: `\`${history.total}\``, inline: true },
-                    { name: '🟢 Finalizate cu Succes', value: `\`${history.closed}\``, inline: true }
+                    { name: '📂 Total Opened Tickets', value: `\`${history.total}\``, inline: true },
+                    { name: '🟢 Successfully Closed', value: `\`${history.closed}\``, inline: true }
                 )
                 .setColor('#3498DB');
 
@@ -379,19 +397,19 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (cmd === 'purge-inactive') {
-            if (interaction.user.id !== CONFIG.OWNER_ID) return interaction.reply({ content: '❌ Acces interzis.', ephemeral: true });
-            await interaction.reply({ content: '🧹 Se curăță tichetele inactive...' });
+      if (!isOwnerOrAdmin(interaction)) return interaction.reply({ content: '❌ Access Denied.', ephemeral: true });
+            await interaction.reply({ content: '🧹 Purging inactive tickets...' });
             checkInactiveTickets(true);
         }
 
-        if (['antiliinks', 'antispam', 'antiraid'].includes(cmd)) {
-            if (interaction.user.id !== CONFIG.OWNER_ID) return interaction.reply({ content: '❌ Doar Owner-ul poate modifica securitatea!', ephemeral: true });
+        if (['antilinks', 'antispam', 'antiraid'].includes(cmd)) {
+            if (!isOwnerOrAdmin(interaction)) return interaction.reply({ content: '❌ Only Owner/Admin can modify security settings!', ephemeral: true });
             const status = interaction.options.getBoolean('status');
-            if (cmd === 'antiliinks') CONFIG.SECURITY.ANTI_LINK = status;
+            if (cmd === 'antilinks') CONFIG.SECURITY.ANTI_LINK = status;
             if (cmd === 'antispam') CONFIG.SECURITY.ANTI_SPAM = status;
             if (cmd === 'antiraid') CONFIG.SECURITY.ANTI_RAID = status;
 
-            return interaction.reply({ content: `🛡️ Setarea **${cmd}** a fost schimbată la: **${status ? 'ACTIVATĂ 🟢' : 'DEZACTIVATĂ 🔴'}**`, ephemeral: true });
+            return interaction.reply({ content: `🛡️ Security setting **${cmd}** is now **${status ? 'ENABLED 🟢' : 'DISABLED 🔴'}**`, ephemeral: true });
         }
     }
 
@@ -404,7 +422,7 @@ client.on('interactionCreate', async (interaction) => {
         const id = interaction.customId;
 
         if (DB.ticketBans.includes(userId) && id.startsWith('panel_')) {
-            return interaction.reply({ content: '🔴 Îți este interzis să mai deschizi bilete pe acest server!', ephemeral: true });
+            return interaction.reply({ content: '🔴 You are blacklisted from opening tickets on this server!', ephemeral: true });
         }
 
         // NUMPAD BUTTONS
@@ -421,11 +439,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             if (id === 'num_cancel') {
                 userSessions.delete(userId);
-                return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Comandă anulată.`, embeds: [], components: [] });
+                return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Order cancelled.`, embeds: [], components: [] });
             }
             if (id === 'num_confirm') {
                 if (!session.customQtyBuffer || parseInt(session.customQtyBuffer) <= 0) {
-                    return interaction.reply({ content: `${CONFIG.EMOJIS.WARNING} Te rog introdu o cantitate mai mare decât 0!`, ephemeral: true });
+                    return interaction.reply({ content: `${CONFIG.EMOJIS.WARNING} Please enter a quantity greater than 0!`, ephemeral: true });
                 }
                 session.quantity = `${session.customQtyBuffer}x`;
                 delete session.customQtyBuffer;
@@ -482,7 +500,7 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Order setup cancelled.`, embeds: [], components: [] });
         }
 
-        // TICKET CANAL ACTIONS
+        // TICKET CHANNEL ACTIONS
         if (id === 't_claim') {
             if (!DB.staffStats[userId]) DB.staffStats[userId] = { claimed: 0, closed: 0 };
             DB.staffStats[userId].claimed++;
@@ -490,7 +508,7 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (id === 't_close' || id === 'op_force_close') {
-            await interaction.reply({ content: `${CONFIG.EMOJIS.CLOSE} Generez transcriptul automat și închid biletul...` });
+            await interaction.reply({ content: `${CONFIG.EMOJIS.CLOSE} Generating transcript and closing ticket...` });
             if (!DB.staffStats[userId]) DB.staffStats[userId] = { claimed: 0, closed: 0 };
             DB.staffStats[userId].closed++;
             await generateAndSendTranscript(interaction.channel, interaction.user);
@@ -524,14 +542,14 @@ client.on('interactionCreate', async (interaction) => {
         if (id === 't_transcript') {
             await interaction.deferReply({ ephemeral: true });
             await generateAndSendTranscript(interaction.channel, interaction.user);
-            return interaction.editReply({ content: `${CONFIG.EMOJIS.TRANSCRIPT} Transcript generat și trimis pe canalul de log-uri!` });
+            return interaction.editReply({ content: `${CONFIG.EMOJIS.TRANSCRIPT} Transcript generated and sent to logs channel!` });
         }
 
         if (id === 'op_ban_ticket') {
             const ownerOverwrite = interaction.channel.permissionOverwrites.cache.find(o => o.type === 1);
             if (ownerOverwrite) {
                 DB.ticketBans.push(ownerOverwrite.id);
-                return interaction.reply({ content: `🚫 Utilizatorul <@${ownerOverwrite.id}> a fost adăugat pe lista neagră de bilete!` });
+                return interaction.reply({ content: `🚫 User <@${ownerOverwrite.id}> added to the ticket blacklist!` });
             }
         }
     }
@@ -542,8 +560,6 @@ client.on('interactionCreate', async (interaction) => {
         const value = interaction.values[0];
 
         if (id === 'ticket_category_select') {
-            // Suport pentru meniul drop-down din Main Panel
-            const eventMock = { customId: value };
             if (value === 'panel_nitro') return client.emit('interactionCreate', { ...interaction, isButton: () => true, customId: 'panel_nitro' });
             if (value === 'panel_deco') return client.emit('interactionCreate', { ...interaction, isButton: () => true, customId: 'panel_deco' });
             if (value === 'panel_boost') return client.emit('interactionCreate', { ...interaction, isButton: () => true, customId: 'panel_boost' });
@@ -560,10 +576,10 @@ client.on('interactionCreate', async (interaction) => {
                         { label: '1x Quantity', value: '1x', emoji: '1️⃣' },
                         { label: '2x Quantity', value: '2x', emoji: '2️⃣' },
                         { label: '3x Quantity', value: '3x', emoji: '3️⃣' },
-                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică', emoji: CONFIG.EMOJIS.CHANGE_QTY }
+                        { label: 'Custom Amount', value: 'custom', description: 'Open numeric keypad', emoji: CONFIG.EMOJIS.CHANGE_QTY }
                     ])
             );
-            return interaction.update({ content: `${CONFIG.EMOJIS.CHECK} Selected: **${value}**. Now select the quantity:`, components: [row] });
+            return interaction.update({ content: `${CONFIG.EMOJIS.CHECK} Selected: **${value}**. Now select quantity:`, components: [row] });
         }
 
         if (id === 'select_nitro_qty') {
@@ -602,7 +618,7 @@ client.on('interactionCreate', async (interaction) => {
                     .addOptions([
                         { label: '14x Boosts', value: '14x', emoji: CONFIG.EMOJIS.BOOST },
                         { label: '28x Boosts', value: '28x', emoji: CONFIG.EMOJIS.BOOST },
-                        { label: 'Custom Amount', value: 'custom', description: 'Tastatură numerică', emoji: CONFIG.EMOJIS.CHANGE_QTY }
+                        { label: 'Custom Amount', value: 'custom', description: 'Open numeric keypad', emoji: CONFIG.EMOJIS.CHANGE_QTY }
                     ])
             );
             return interaction.update({ content: `${CONFIG.EMOJIS.BOOST} Select how many boosts you want:`, components: [row] });
@@ -667,7 +683,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 });
-            // ==============================================================================
+// ==============================================================================
 // 9. HELPER FUNCTIONS
 // ==============================================================================
 async function sendPaymentMenu(interaction) {
@@ -776,7 +792,7 @@ client.on('messageCreate', async (message) => {
     if (CONFIG.SECURITY.ANTI_LINK) {
         if (/(https?:\/\/[^\s]+)/g.test(message.content)) {
             await message.delete().catch(() => {});
-            return message.channel.send(`⚠️ <@${message.author.id}>, link-urile sunt interzise!`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
+            return message.channel.send(`⚠️ <@${message.author.id}>, sending links is not allowed!`).then(m => setTimeout(() => m.delete().catch(() => {}), 4000));
         }
     }
 
@@ -788,7 +804,7 @@ client.on('messageCreate', async (message) => {
             userData.count++;
             if (userData.count >= 4) {
                 await message.member.timeout(5 * 60 * 1000, 'Anti-Spam Triggered').catch(() => {});
-                await message.channel.send(`🔇 <@${message.author.id}> a primit timeout 5 minute pentru spam.`);
+                await message.channel.send(`🔇 <@${message.author.id}> has been muted for 5 minutes (Spam Protection).`);
                 spamTracker.delete(message.author.id);
                 return;
             }
@@ -810,12 +826,7 @@ client.on('guildMemberAdd', async (member) => {
     }
 });
 
-function isStaff(member) {
-    if (!member) return false;
-    return member.roles.cache.has(CONFIG.STAFF_ROLE_ID) || member.id === CONFIG.OWNER_ID;
-}
-
 // ==============================================================================
 // 11. BOT LOGIN
 // ==============================================================================
-client.login(CONFIG.TOKEN);
+client.login(CONFIG.TOKEN);                                                          
