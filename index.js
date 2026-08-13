@@ -102,7 +102,7 @@ function buildNumpadUI(currentVal = '') {
     const r4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('num_C').setLabel('C').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('num_0').setLabel('0').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Warning)
+        new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Danger) // Reparat aici
     );
     const r5 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('num_cancel').setLabel('Anulează').setStyle(ButtonStyle.Secondary),
@@ -456,7 +456,7 @@ async function sendPaymentMenu(interaction) {
             .setCustomId('select_payment')
             .setPlaceholder('Select Payment Method')
             .addOptions([
-         { label: 'Bank Transfer', value: 'Bank Transfer' },
+                { label: 'Bank Transfer', value: 'Bank Transfer' },
                 { label: 'PayPal', value: 'PayPal' },
                 { label: 'Crypto', value: 'Crypto' }
             ])
