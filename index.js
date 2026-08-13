@@ -41,18 +41,25 @@ const PINGS = {
 // Temporary in-memory session store
 const userSessions = new Map();
 
-// BOT READY EVENT + CLEAR OLD SLASH COMMANDS
+// BOT READY EVENT + CLEAR ALL GLOBAL & GUILD COMMANDS
 client.on('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag}!`);
 
     try {
-        // Clears all previous global Slash Commands
+        // 1. Șterge toate comenzile Slash Globale
         await client.application.commands.set([]);
-        console.log('🧹 Old Slash Commands cleared successfully from Discord!');
+        console.log('🧹 All Global Slash Commands cleared!');
+
+        // 2. Șterge comenzile specifice fiecărui server în care se află botul (Guild Commands)
+        for (const guild of client.guilds.cache.values()) {
+            await guild.commands.set([]);
+        }
+        console.log('🧹 All Guild-specific Slash Commands cleared from all servers!');
     } catch (error) {
-        console.error('Error clearing old commands:', error);
+        console.error('Error clearing commands:', error);
     }
 });
+
 
 // Command to send Main Ticket Panel (!setup-tickets)
 client.on('messageCreate', async (message) => {
