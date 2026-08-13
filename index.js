@@ -1,5 +1,5 @@
 // ==============================================================================
-// 1. MODULES & SERVER SETUP (KEEP-ALIVE FOR RENDER)
+// 1. MODULES & SERVER SETUP
 // ==============================================================================
 const { 
     Client, 
@@ -13,7 +13,8 @@ const {
     TextInputStyle, 
     EmbedBuilder, 
     PermissionsBitField, 
-    ChannelType 
+    ChannelType,
+    AttachmentBuilder 
 } = require('discord.js');
 const express = require('express');
 require('dotenv').config();
@@ -32,25 +33,26 @@ const client = new Client({
 });
 
 // ==============================================================================
-// 2. CONFIGURATIONS & CONSTANTS
+// 2. CONFIGURATIONS
 // ==============================================================================
 const CONFIG = {
     COLOR_PRIMARY: '#2B2D31',
     COLOR_TICKET: '#5865F2',
     STAFF_ROLE_ID: '1534625944017571941',
+    // 🖼️ BANNER INTEGRAT DIRECT
+    BANNER_URL: 'https://cdn.discordapp.com/attachments/1531290394242056344/1537451917893181580/standard_2.gif?ex=6a7f172d&is=6a7dc5ad&hm=e6ecd8fe90fd79822e1f5efe2efcdabdaf32d3f072fc7359f29237eb1217186d&', 
     PINGS: {
         NITRO: '1534479829225832528',
         DECO: '1534480089083936789',
         BOOST: '1534480275474612254',
         OTHER: '1535562946107809883'
-    },
-    BANNER_URL: 'https://i.imgur.com/8Q73NqF.png'
+    }
 };
 
 const userSessions = new Map();
 
 // ==============================================================================
-// 3. READY EVENT & SLASH COMMANDS
+// 3. READY EVENT
 // ==============================================================================
 client.on('ready', async () => {
     console.log(`=================================`);
@@ -67,9 +69,9 @@ client.on('ready', async () => {
 
     try {
         await client.application.commands.set(commands);
-        console.log('✨ Registered /setup-tickets slash command globally!');
+        console.log('✨ Registered /setup-tickets slash command!');
     } catch (error) {
-        console.error('❌ Failed to register slash command:', error);
+        console.error('❌ Slash command registration error:', error);
     }
 });
 
@@ -100,10 +102,10 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==============================================================================
-// 5. INTERACTION ENGINE (SMART EPHEMERAL UPDATES)
+// 5. INTERACTION ENGINE
 // ==============================================================================
 client.on('interactionCreate', async (interaction) => {
-    // --- A. SLASH COMMANDS ---
+    // --- A. SLASH COMMAND ---
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup-tickets') {
             return interaction.reply(buildMainPanel());
@@ -114,11 +116,11 @@ client.on('interactionCreate', async (interaction) => {
     if (!userSessions.has(userId)) userSessions.set(userId, {});
     const session = userSessions.get(userId);
 
-    // --- B. BUTTON INTERACTIONS ---
+    // --- B. BUTTONS ---
     if (interaction.isButton()) {
         const id = interaction.customId;
 
-        // --- STEP 1: BUTTONS ON MAIN PANEL (Create the single Ephemeral message) ---
+        // Main Panel Buttons
         if (id === 'panel_nitro') {
             session.category = 'Nitr0';
             const menu = new ActionRowBuilder().addComponents(
@@ -156,14 +158,12 @@ client.on('interactionCreate', async (interaction) => {
                 .setCustomId('other_product')
                 .setLabel('What do you want to buy?')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('e.g. Netflix, Spotify, Account...')
                 .setRequired(true);
 
             const budgetInput = new TextInputBuilder()
                 .setCustomId('other_budget')
                 .setLabel('What is your budget?')
                 .setStyle(TextInputStyle.Short)
-                .setPlaceholder('e.g. $10, 50 RON...')
                 .setRequired(true);
 
             modal.addComponents(
@@ -174,7 +174,7 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.showModal(modal);
         }
 
-        // --- STEP 2: CONFIRM / CANCEL BUTTONS INSIDE EPHEMERAL ---
+        // Ephemeral Setup Buttons
         if (id === 'confirm_ticket') {
             return executeTicketCreation(interaction, session);
         }
@@ -184,25 +184,59 @@ client.on('interactionCreate', async (interaction) => {
             return interaction.update({ content: '❌ Order setup cancelled.', embeds: [], components: [] });
         }
 
-        // --- BUTTONS INSIDE OPENED TICKET CHANNEL ---
+        // --- BUTTONS INSIDE TICKET CHANNEL ---
         if (id === 't_claim') {
             return interaction.reply({ content: `🔔 Ticket claimed by <@${interaction.user.id}>!`, ephemeral: false });
         }
+
         if (id === 't_close') {
             await interaction.reply({ content: '🔒 Closing ticket in 5 seconds...' });
             setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
             return;
         }
+
         if (id === 't_ping_staff') {
             return interaction.reply({ content: `<@&${CONFIG.STAFF_ROLE_ID}> Customer requires staff assistance!`, ephemeral: false });
         }
-        if (['t_transcript', 't_add_user', 't_remove_user', 't_change_qty', 't_mm'].includes(id)) {
-            const actionName = id.replace('t_', '').toUpperCase();
-            return interaction.reply({ content: `ℹ️ Selected action: **${actionName}**`, ephemeral: true });
+
+        if (id === 't_add_user') {
+            const modal = new ModalBuilder().setCustomId('modal_ticket_add_user').setTitle('Add User to Ticket');
+            const userInput = new TextInputBuilder().setCustomId('target_user_id').setLabel('Enter User ID:').setStyle(TextInputStyle.Short).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(userInput));
+            return interaction.showModal(modal);
+        }
+
+        if (id === 't_remove_user') {
+            const modal = new ModalBuilder().setCustomId('modal_ticket_remove_user').setTitle('Remove User from Ticket');
+            const userInput = new TextInputBuilder().setCustomId('target_user_id').setLabel('Enter User ID:').setStyle(TextInputStyle.Short).setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(userInput));
+            return interaction.showModal(modal);
+        }
+
+        if (id === 't_change_qty') {
+            const modal = new ModalBuilder().setCustomId('modal_ticket_change_qty').setTitle('Change Order Quantity');
+            const qtyInput = new TextInputBuilder().setCustomId('new_qty').setLabel('Enter New Quantity:').setStyle(TextInputStyle.Short).setPlaceholder('e.g. 5x').setRequired(true);
+            modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
+            return interaction.showModal(modal);
+        }
+
+        if (id === 't_transcript') {
+            await interaction.deferReply({ ephemeral: true });
+            const messages = await interaction.channel.messages.fetch({ limit: 100 });
+            let transcriptText = `--- TRANSCRIPT FOR ${interaction.channel.name} ---\n\n`;
+            
+            messages.reverse().forEach(msg => {
+                transcriptText += `[${msg.createdAt.toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
+            });
+
+            const buffer = Buffer.from(transcriptText, 'utf-8');
+            const attachment = new AttachmentBuilder(buffer, { name: `transcript-${interaction.channel.name}.txt` });
+
+            return interaction.editReply({ content: '📋 Here is the ticket transcript:', files: [attachment] });
         }
     }
 
-    // --- C. SELECT MENUS (Edit the existing ephemeral message) ---
+    // --- C. SELECT MENUS ---
     if (interaction.isStringSelectMenu()) {
         const id = interaction.customId;
         const value = interaction.values[0];
@@ -295,7 +329,7 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // --- D. MODAL SUBMITS (Edit the existing ephemeral message) ---
+    // --- D. MODAL HANDLERS ---
     if (interaction.isModalSubmit()) {
         const id = interaction.customId;
 
@@ -315,14 +349,54 @@ client.on('interactionCreate', async (interaction) => {
             session.quantity = '1x';
             return sendPaymentMenu(interaction);
         }
+
+        // TICKET MODAL ACTIONS
+        if (id === 'modal_ticket_add_user') {
+            const targetId = interaction.fields.getTextInputValue('target_user_id');
+            try {
+                await interaction.channel.permissionOverwrites.edit(targetId, {
+                    ViewChannel: true,
+                    SendMessages: true,
+                    AttachFiles: true
+                });
+                return interaction.reply({ content: `✅ Added <@${targetId}> to this ticket.` });
+            } catch (err) {
+                return interaction.reply({ content: '❌ Invalid User ID or missing permissions.', ephemeral: true });
+            }
+        }
+
+        if (id === 'modal_ticket_remove_user') {
+            const targetId = interaction.fields.getTextInputValue('target_user_id');
+            try {
+                await interaction.channel.permissionOverwrites.delete(targetId);
+                return interaction.reply({ content: `🚫 Removed <@${targetId}> from this ticket.` });
+            } catch (err) {
+                return interaction.reply({ content: '❌ Invalid User ID or missing permissions.', ephemeral: true });
+            }
+        }
+
+        if (id === 'modal_ticket_change_qty') {
+            const newQty = interaction.fields.getTextInputValue('new_qty');
+            try {
+                const message = interaction.message;
+                if (message && message.embeds.length > 0) {
+                    const oldEmbed = message.embeds[0];
+                    const updatedDescription = oldEmbed.description.replace(/\*\*Quantity:\*\* .*/, `**Quantity:** ${newQty}`);
+
+                    const newEmbed = EmbedBuilder.from(oldEmbed).setDescription(updatedDescription);
+                    await message.edit({ embeds: [newEmbed] });
+                    return interaction.reply({ content: `🛒 Order quantity updated to **${newQty}**!`, ephemeral: true });
+                }
+            } catch (err) {
+                return interaction.reply({ content: '❌ Could not update embed.', ephemeral: true });
+            }
+        }
     }
 });
 
 // ==============================================================================
-// 6. HELPER FUNCTIONS (EPHEMERAL MANAGERS)
+// 6. HELPER FUNCTIONS
 // ==============================================================================
-
-// Display Payment Select Menu
 async function sendPaymentMenu(interaction) {
     const row = new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
@@ -337,21 +411,15 @@ async function sendPaymentMenu(interaction) {
 
     const payload = { content: '💳 Please select your preferred payment method:', embeds: [], components: [row] };
     
-    // If triggered directly from main panel buttons (Deco / Boost), create Ephemeral reply.
     if (interaction.isButton() && interaction.customId.startsWith('panel_')) {
         return interaction.reply({ ...payload, ephemeral: true });
-    } 
-    // If triggered from modal submit (Other category) or select menu, create/update accordingly.
-    else if (interaction.isModalSubmit() && interaction.customId === 'modal_other') {
+    } else if (interaction.isModalSubmit() && interaction.customId === 'modal_other') {
         return interaction.reply({ ...payload, ephemeral: true });
-    } 
-    // Otherwise update existing Ephemeral message.
-    else {
+    } else {
         return interaction.update(payload);
     }
 }
 
-// Display Summary & Ticket Creation Confirmation
 async function sendConfirmationSummary(interaction, session) {
     const embed = new EmbedBuilder()
         .setTitle('🛒 Order Confirmation Summary')
@@ -372,12 +440,10 @@ async function sendConfirmationSummary(interaction, session) {
         new ButtonBuilder().setCustomId('cancel_ticket').setLabel('Cancel').setStyle(ButtonStyle.Danger)
     );
 
-    const payload = { content: 'Please review your selection before opening the ticket:', embeds: [embed], components: [row] };
-    
-    return interaction.update(payload);
+    return interaction.update({ content: 'Please review your selection before opening the ticket:', embeds: [embed], components: [row] });
 }
 
-// Create Ticket Channel & Send UI
+// Create Ticket Channel & Send Embed with Direct Image URL
 async function executeTicketCreation(interaction, session) {
     const guild = interaction.guild;
     const user = interaction.user;
@@ -410,10 +476,14 @@ async function executeTicketCreation(interaction, session) {
 
     const randomUUID = Math.random().toString(36).substring(2, 10) + '-ec14-40a6-9794-' + Math.random().toString(36).substring(2, 12);
 
+    // Build embed & set banner GIF
     const ticketEmbed = new EmbedBuilder()
         .setColor(CONFIG.COLOR_TICKET)
-        .setDescription(`🦋 | **${session.product}**\n<@${user.id}> • \`${randomUUID}\`\n\n**Method:** ${session.payment}\n**Quantity:** ${session.quantity}\n**Product:** ${session.product}\n**Amount:** **Discuss in ticket**`)
-        .setImage(CONFIG.BANNER_URL);
+        .setDescription(`🦋 | **${session.product}**\n<@${user.id}> • \`${randomUUID}\`\n\n**Method:** ${session.payment}\n**Quantity:** ${session.quantity}\n**Product:** ${session.product}\n**Amount:** **Discuss in ticket**`);
+
+    if (CONFIG.BANNER_URL) {
+        ticketEmbed.setImage(CONFIG.BANNER_URL);
+    }
 
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('t_claim').setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
@@ -424,20 +494,17 @@ async function executeTicketCreation(interaction, session) {
         new ButtonBuilder().setCustomId('t_remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary).setEmoji('🚫')
     );
     const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_change_qty').setLabel('Change Quantity').setStyle(ButtonStyle.Secondary).setEmoji('🛒')
-    );
-    const row4 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_mm').setLabel('MM').setStyle(ButtonStyle.Primary).setEmoji('🫘'),
+        new ButtonBuilder().setCustomId('t_change_qty').setLabel('Change Quantity').setStyle(ButtonStyle.Secondary).setEmoji('🛒'),
         new ButtonBuilder().setCustomId('t_ping_staff').setLabel('Ping Staff').setStyle(ButtonStyle.Secondary).setEmoji('🔔')
     );
-    const row5 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_close').setLabel('Close').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+    const row4 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('t_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
     );
 
     await channel.send({ 
         content: `<@${user.id}> <@&${pingRoleId}>`, 
         embeds: [ticketEmbed], 
-        components: [row1, row2, row3, row4, row5] 
+        components: [row1, row2, row3, row4] 
     });
 
     userSessions.delete(user.id);
