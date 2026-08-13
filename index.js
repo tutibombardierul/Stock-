@@ -39,7 +39,6 @@ const CONFIG = {
     COLOR_PRIMARY: '#2B2D31',
     COLOR_TICKET: '#5865F2',
     STAFF_ROLE_ID: '1534625944017571941',
-    // 🖼️ BANNER INTEGRAT DIRECT
     BANNER_URL: 'https://cdn.discordapp.com/attachments/1531290394242056344/1537451917893181580/standard_2.gif?ex=6a7f172d&is=6a7dc5ad&hm=e6ecd8fe90fd79822e1f5efe2efcdabdaf32d3f072fc7359f29237eb1217186d&', 
     PINGS: {
         NITRO: '1534479829225832528',
@@ -76,7 +75,45 @@ client.on('ready', async () => {
 });
 
 // ==============================================================================
-// 4. MAIN PANEL BUILDER
+// 4. HELPER: NUMPAD BUILDER
+// ==============================================================================
+function buildNumpadUI(currentVal = '') {
+    const displayVal = currentVal || '0';
+    const embed = new EmbedBuilder()
+        .setTitle('🔢 Introdu Cantitatea Dorită')
+        .setDescription(`Folosește tastatura de mai jos pentru a selecta numărul de bucăți:\n\n\`\`\`\n > [ ${displayVal} ] \n\`\`\``)
+        .setColor(CONFIG.COLOR_PRIMARY);
+
+    const r1 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('num_1').setLabel('1').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_2').setLabel('2').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_3').setLabel('3').setStyle(ButtonStyle.Secondary)
+    );
+    const r2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('num_4').setLabel('4').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_5').setLabel('5').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_6').setLabel('6').setStyle(ButtonStyle.Secondary)
+    );
+    const r3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('num_7').setLabel('7').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_8').setLabel('8').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_9').setLabel('9').setStyle(ButtonStyle.Secondary)
+    );
+    const r4 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('num_C').setLabel('C').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId('num_0').setLabel('0').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Warning)
+    );
+    const r5 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('num_cancel').setLabel('Anulează').setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId('num_confirm').setLabel('Confirmă').setStyle(ButtonStyle.Success)
+    );
+
+    return { content: '', embeds: [embed], components: [r1, r2, r3, r4, r5], ephemeral: true };
+}
+
+// ==============================================================================
+// 5. MAIN PANEL BUILDER
 // ==============================================================================
 function buildMainPanel() {
     const embed = new EmbedBuilder()
@@ -102,7 +139,7 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==============================================================================
-// 5. INTERACTION ENGINE
+// 6. INTERACTION ENGINE
 // ==============================================================================
 client.on('interactionCreate', async (interaction) => {
     // --- A. SLASH COMMAND ---
@@ -116,9 +153,51 @@ client.on('interactionCreate', async (interaction) => {
     if (!userSessions.has(userId)) userSessions.set(userId, {});
     const session = userSessions.get(userId);
 
-    // --- B. BUTTONS ---
+    // --- B. BUTTONS & NUMPAD ENGINE ---
     if (interaction.isButton()) {
         const id = interaction.customId;
+
+        // NUMPAD BUTTON INTERACTION HANDLER
+        if (id.startsWith('num_')) {
+            if (!session.customQtyBuffer) session.customQtyBuffer = '';
+
+            if (id === 'num_C') {
+                session.customQtyBuffer = '';
+                return interaction.update(buildNumpadUI(session.customQtyBuffer));
+            }
+
+            if (id === 'num_back') {
+                session.customQtyBuffer = session.customQtyBuffer.slice(0, -1);
+                return interaction.update(buildNumpadUI(session.customQtyBuffer));
+            }
+
+            if (id === 'num_cancel') {
+                userSessions.delete(userId);
+                return interaction.update({ content: '❌ Comandă anulată.', embeds: [], components: [] });
+            }
+
+            if (id === 'num_confirm') {
+                if (!session.customQtyBuffer || parseInt(session.customQtyBuffer) <= 0) {
+                    return interaction.reply({ content: '⚠️ Te rog introdu o cantitate mai mare decât 0!', ephemeral: true });
+                }
+                
+                session.quantity = `${session.customQtyBuffer}x`;
+                delete session.customQtyBuffer;
+
+                if (session.category === 'Server Boost') {
+                    return sendConfirmationSummary(interaction, session);
+                } else {
+                    return sendPaymentMenu(interaction);
+                }
+            }
+
+            // CIFRE 0-9
+            const digit = id.replace('num_', '');
+            if (session.customQtyBuffer.length < 4) { // Maxim 4 cifre (ex: 9999)
+                session.customQtyBuffer += digit;
+            }
+            return interaction.update(buildNumpadUI(session.customQtyBuffer));
+        }
 
         // Main Panel Buttons
         if (id === 'panel_nitro') {
@@ -252,7 +331,7 @@ client.on('interactionCreate', async (interaction) => {
                         { label: '2x Quantity', value: '2x' },
                         { label: '3x Quantity', value: '3x' },
                         { label: '4x Quantity', value: '4x' },
-                        { label: 'Custom Amount', value: 'custom', description: 'Specify custom quantity' }
+                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică' }
                     ])
             );
             return interaction.update({ content: ` Selected: **${value}**. Now select the quantity:`, components: [row] });
@@ -260,16 +339,8 @@ client.on('interactionCreate', async (interaction) => {
 
         if (id === 'select_nitro_qty') {
             if (value === 'custom') {
-                const modal = new ModalBuilder()
-                    .setCustomId('modal_nitro_qty')
-                    .setTitle('Custom Nitro Quantity');
-                const qtyInput = new TextInputBuilder()
-                    .setCustomId('nitro_custom_qty')
-                    .setLabel('Enter quantity count:')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-                return interaction.showModal(modal);
+                session.customQtyBuffer = '';
+                return interaction.update(buildNumpadUI(''));
             } else {
                 session.quantity = value;
                 return sendPaymentMenu(interaction);
@@ -304,7 +375,7 @@ client.on('interactionCreate', async (interaction) => {
                     .addOptions([
                         { label: '14x Boosts', value: '14x' },
                         { label: '28x Boosts', value: '28x' },
-                        { label: 'Custom Amount', value: 'custom', description: 'Enter specific boost amount' }
+                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică' }
                     ])
             );
             return interaction.update({ content: ' Select how many boosts you want:', components: [row] });
@@ -312,16 +383,8 @@ client.on('interactionCreate', async (interaction) => {
 
         if (id === 'select_boost_qty') {
             if (value === 'custom') {
-                const modal = new ModalBuilder()
-                    .setCustomId('modal_boost_qty')
-                    .setTitle('Custom Boost Quantity');
-                const qtyInput = new TextInputBuilder()
-                    .setCustomId('boost_custom_qty')
-                    .setLabel('Enter boost count:')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true);
-                modal.addComponents(new ActionRowBuilder().addComponents(qtyInput));
-                return interaction.showModal(modal);
+                session.customQtyBuffer = '';
+                return interaction.update(buildNumpadUI(''));
             } else {
                 session.quantity = value;
                 return sendConfirmationSummary(interaction, session);
@@ -332,16 +395,6 @@ client.on('interactionCreate', async (interaction) => {
     // --- D. MODAL HANDLERS ---
     if (interaction.isModalSubmit()) {
         const id = interaction.customId;
-
-        if (id === 'modal_nitro_qty') {
-            session.quantity = `${interaction.fields.getTextInputValue('nitro_custom_qty')}x`;
-            return sendPaymentMenu(interaction);
-        }
-
-        if (id === 'modal_boost_qty') {
-            session.quantity = `${interaction.fields.getTextInputValue('boost_custom_qty')}x`;
-            return sendConfirmationSummary(interaction, session);
-        }
 
         if (id === 'modal_other') {
             session.product = interaction.fields.getTextInputValue('other_product');
@@ -395,7 +448,7 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 // ==============================================================================
-// 6. HELPER FUNCTIONS
+// 7. HELPER FUNCTIONS
 // ==============================================================================
 async function sendPaymentMenu(interaction) {
     const row = new ActionRowBuilder().addComponents(
@@ -403,7 +456,7 @@ async function sendPaymentMenu(interaction) {
             .setCustomId('select_payment')
             .setPlaceholder('Select Payment Method')
             .addOptions([
-                { label: 'Bank Transfer', value: 'Bank Transfer' },
+         { label: 'Bank Transfer', value: 'Bank Transfer' },
                 { label: 'PayPal', value: 'PayPal' },
                 { label: 'Crypto', value: 'Crypto' }
             ])
@@ -476,7 +529,6 @@ async function executeTicketCreation(interaction, session) {
 
     const randomUUID = Math.random().toString(36).substring(2, 10) + '-ec14-40a6-9794-' + Math.random().toString(36).substring(2, 12);
 
-    // Build embed & set banner GIF
     const ticketEmbed = new EmbedBuilder()
         .setColor(CONFIG.COLOR_TICKET)
         .setDescription(`🦋 | **${session.product}**\n<@${user.id}> • \`${randomUUID}\`\n\n**Method:** ${session.payment}\n**Quantity:** ${session.quantity}\n**Product:** ${session.product}\n**Amount:** **Discuss in ticket**`);
@@ -517,7 +569,6 @@ async function executeTicketCreation(interaction, session) {
 }
 
 // ==============================================================================
-// 7. BOT LOGIN
+// 8. BOT LOGIN
 // ==============================================================================
 client.login(process.env.DISCORD_TOKEN);
-                
