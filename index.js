@@ -20,7 +20,7 @@ const express = require('express');
 require('dotenv').config();
 
 const app = express();
-app.get('/', (req, res) => res.send('⚡ VNS Market Bot is online and ready!'));
+app.get('/', (req, res) => res.send('⚡ VNS Market Bot este online și gata de lucru!'));
 app.listen(process.env.PORT || 3000);
 
 const client = new Client({
@@ -33,18 +33,44 @@ const client = new Client({
 });
 
 // ==============================================================================
-// 2. CONFIGURATIONS
+// 2. CONFIGURATIONS & EMOJIS
 // ==============================================================================
 const CONFIG = {
     COLOR_PRIMARY: '#2B2D31',
     COLOR_TICKET: '#5865F2',
     STAFF_ROLE_ID: '1534625944017571941',
+    TRANSCRIPT_CHANNEL_ID: '1534479829225832528', 
+
     BANNER_URL: 'https://cdn.discordapp.com/attachments/1531290394242056344/1537451917893181580/standard_2.gif?ex=6a7f172d&is=6a7dc5ad&hm=e6ecd8fe90fd79822e1f5efe2efcdabdaf32d3f072fc7359f29237eb1217186d&', 
+    
     PINGS: {
         NITRO: '1534479829225832528',
         DECO: '1534480089083936789',
         BOOST: '1534480275474612254',
         OTHER: '1535562946107809883'
+    },
+
+    // 🎭 EMOJI-URI POPULATE UNIVERSAL (Funcționează instant pe orice server)
+    EMOJIS: {
+        NITRO: '🚀',
+        DECO: '🎨',
+        BOOST: '⚡',
+        OTHER: '🎁',
+        CLAIM: '🔔',
+        TRANSCRIPT: '📜',
+        ADD_USER: '➕',
+        REMOVE_USER: '➖',
+        CHANGE_QTY: '🔢',
+        PING: '📢',
+        CLOSE: '🔒',
+        CHECK: '✅',
+        SPARKLES: '✨',
+        CART: '🛒',
+        CARD: '💳',
+        CROSS: '❌',
+        WARNING: '⚠️',
+        STAR: '⭐',
+        CROWN: '👑'
     }
 };
 
@@ -68,7 +94,7 @@ client.on('ready', async () => {
 
     try {
         await client.application.commands.set(commands);
-        console.log('✨ Registered /setup-tickets slash command!');
+        console.log(`${CONFIG.EMOJIS.SPARKLES} Registered /setup-tickets slash command!`);
     } catch (error) {
         console.error('❌ Slash command registration error:', error);
     }
@@ -80,7 +106,7 @@ client.on('ready', async () => {
 function buildNumpadUI(currentVal = '') {
     const displayVal = currentVal || '0';
     const embed = new EmbedBuilder()
-        .setTitle('🔢 Introdu Cantitatea Dorită')
+        .setTitle(`${CONFIG.EMOJIS.CHANGE_QTY} Introdu Cantitatea Dorită`)
         .setDescription(`Folosește tastatura de mai jos pentru a selecta numărul de bucăți:\n\n\`\`\`\n > [ ${displayVal} ] \n\`\`\``)
         .setColor(CONFIG.COLOR_PRIMARY);
 
@@ -102,11 +128,11 @@ function buildNumpadUI(currentVal = '') {
     const r4 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId('num_C').setLabel('C').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId('num_0').setLabel('0').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Danger) // Reparat aici
+        new ButtonBuilder().setCustomId('num_back').setLabel('⌫').setStyle(ButtonStyle.Danger)
     );
     const r5 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('num_cancel').setLabel('Anulează').setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder().setCustomId('num_confirm').setLabel('Confirmă').setStyle(ButtonStyle.Success)
+        new ButtonBuilder().setCustomId('num_cancel').setLabel('Anulează').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.CROSS),
+        new ButtonBuilder().setCustomId('num_confirm').setLabel('Confirmă').setStyle(ButtonStyle.Success).setEmoji(CONFIG.EMOJIS.CHECK)
     );
 
     return { content: '', embeds: [embed], components: [r1, r2, r3, r4, r5], ephemeral: true };
@@ -117,15 +143,15 @@ function buildNumpadUI(currentVal = '') {
 // ==============================================================================
 function buildMainPanel() {
     const embed = new EmbedBuilder()
-        .setTitle('**VNS Market Tickets**')
+        .setTitle(`${CONFIG.EMOJIS.SPARKLES} **VNS Market Tickets** ${CONFIG.EMOJIS.SPARKLES}`)
         .setDescription('🌙 **Staff offline** — We will respond as soon as possible.\n\nSelect a category below to open a ticket.')
         .setColor(CONFIG.COLOR_PRIMARY);
 
     const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('panel_nitro').setLabel('Nitr0').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('panel_deco').setLabel('Dec0').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('panel_boost').setLabel('server b00st').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId('panel_other').setLabel('other').setStyle(ButtonStyle.Secondary)
+        new ButtonBuilder().setCustomId('panel_nitro').setLabel('Nitr0').setStyle(ButtonStyle.Primary).setEmoji(CONFIG.EMOJIS.NITRO),
+        new ButtonBuilder().setCustomId('panel_deco').setLabel('Dec0').setStyle(ButtonStyle.Primary).setEmoji(CONFIG.EMOJIS.DECO),
+        new ButtonBuilder().setCustomId('panel_boost').setLabel('Server Boost').setStyle(ButtonStyle.Primary).setEmoji(CONFIG.EMOJIS.BOOST),
+        new ButtonBuilder().setCustomId('panel_other').setLabel('Other').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.OTHER)
     );
 
     return { embeds: [embed], components: [row] };
@@ -139,10 +165,54 @@ client.on('messageCreate', async (message) => {
 });
 
 // ==============================================================================
-// 6. INTERACTION ENGINE
+// 6. HELPER: GENERATE & SEND AUTO TRANSCRIPT
+// ==============================================================================
+async function generateAndSendTranscript(channel, closedBy) {
+    try {
+        const messages = await channel.messages.fetch({ limit: 100 });
+        let transcriptText = `==================================================\n`;
+        transcriptText += `📜 TRANSCRIPT PENTRU CANALUL: ${channel.name}\n`;
+        transcriptText += `🔒 Închis de: ${closedBy.tag} (${closedBy.id})\n`;
+        transcriptText += `📅 Data: ${new Date().toLocaleString()}\n`;
+        transcriptText += `==================================================\n\n`;
+
+        messages.reverse().forEach(msg => {
+            transcriptText += `[${msg.createdAt.toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
+            if (msg.attachments.size > 0) {
+                msg.attachments.forEach(att => {
+                    transcriptText += `   📎 Attachment: ${att.url}\n`;
+                });
+            }
+        });
+
+        const buffer = Buffer.from(transcriptText, 'utf-8');
+        const attachment = new AttachmentBuilder(buffer, { name: `transcript-${channel.name}.txt` });
+
+        if (CONFIG.TRANSCRIPT_CHANNEL_ID) {
+            const logChannel = channel.guild.channels.cache.get(CONFIG.TRANSCRIPT_CHANNEL_ID);
+            if (logChannel) {
+                const logEmbed = new EmbedBuilder()
+                    .setTitle(`${CONFIG.EMOJIS.TRANSCRIPT} Ticket Closed - Auto Transcript`)
+                    .setColor(CONFIG.COLOR_TICKET)
+                    .addFields(
+                        { name: 'Channel Name', value: `\`${channel.name}\``, inline: true },
+                        { name: 'Closed By', value: `<@${closedBy.id}>`, inline: true },
+                        { name: 'Messages Total', value: `\`${messages.size}\``, inline: true }
+                    )
+                    .setTimestamp();
+
+                await logChannel.send({ embeds: [logEmbed], files: [attachment] }).catch(err => console.error('Eroare log transcript:', err));
+            }
+        }
+    } catch (error) {
+        console.error('❌ Eroare la generarea transcriptului automat:', error);
+    }
+}
+
+// ==============================================================================
+// 7. INTERACTION ENGINE
 // ==============================================================================
 client.on('interactionCreate', async (interaction) => {
-    // --- A. SLASH COMMAND ---
     if (interaction.isChatInputCommand()) {
         if (interaction.commandName === 'setup-tickets') {
             return interaction.reply(buildMainPanel());
@@ -153,7 +223,6 @@ client.on('interactionCreate', async (interaction) => {
     if (!userSessions.has(userId)) userSessions.set(userId, {});
     const session = userSessions.get(userId);
 
-    // --- B. BUTTONS & NUMPAD ENGINE ---
     if (interaction.isButton()) {
         const id = interaction.customId;
 
@@ -173,12 +242,12 @@ client.on('interactionCreate', async (interaction) => {
 
             if (id === 'num_cancel') {
                 userSessions.delete(userId);
-                return interaction.update({ content: '❌ Comandă anulată.', embeds: [], components: [] });
+                return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Comandă anulată.`, embeds: [], components: [] });
             }
 
             if (id === 'num_confirm') {
                 if (!session.customQtyBuffer || parseInt(session.customQtyBuffer) <= 0) {
-                    return interaction.reply({ content: '⚠️ Te rog introdu o cantitate mai mare decât 0!', ephemeral: true });
+                    return interaction.reply({ content: `${CONFIG.EMOJIS.WARNING} Te rog introdu o cantitate mai mare decât 0!`, ephemeral: true });
                 }
                 
                 session.quantity = `${session.customQtyBuffer}x`;
@@ -191,9 +260,8 @@ client.on('interactionCreate', async (interaction) => {
                 }
             }
 
-            // CIFRE 0-9
             const digit = id.replace('num_', '');
-            if (session.customQtyBuffer.length < 4) { // Maxim 4 cifre (ex: 9999)
+            if (session.customQtyBuffer.length < 4) {
                 session.customQtyBuffer += digit;
             }
             return interaction.update(buildNumpadUI(session.customQtyBuffer));
@@ -207,11 +275,11 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('select_nitro_type')
                     .setPlaceholder('Select Nitro Type')
                     .addOptions([
-                        { label: 'Nitro Boost', value: 'Nitr0 Boost', description: 'Includes 2 Server Boosts' },
-                        { label: 'Nitro Basic', value: 'Nitr0 Basic', description: 'Basic perks without boosts' }
+                        { label: 'Nitro Boost', value: 'Nitr0 Boost', description: 'Includes 2 Server Boosts', emoji: CONFIG.EMOJIS.NITRO },
+                        { label: 'Nitro Basic', value: 'Nitr0 Basic', description: 'Basic perks without boosts', emoji: CONFIG.EMOJIS.STAR }
                     ])
             );
-            return interaction.reply({ content: ' Please select the type of Nitro you need:', components: [menu], ephemeral: true });
+            return interaction.reply({ content: `${CONFIG.EMOJIS.NITRO} Please select the type of Nitro you need:`, components: [menu], ephemeral: true });
         }
 
         if (id === 'panel_deco') {
@@ -260,22 +328,23 @@ client.on('interactionCreate', async (interaction) => {
 
         if (id === 'cancel_ticket') {
             userSessions.delete(userId);
-            return interaction.update({ content: '❌ Order setup cancelled.', embeds: [], components: [] });
+            return interaction.update({ content: `${CONFIG.EMOJIS.CROSS} Order setup cancelled.`, embeds: [], components: [] });
         }
 
         // --- BUTTONS INSIDE TICKET CHANNEL ---
         if (id === 't_claim') {
-            return interaction.reply({ content: `🔔 Ticket claimed by <@${interaction.user.id}>!`, ephemeral: false });
+            return interaction.reply({ content: `${CONFIG.EMOJIS.CLAIM} Ticket claimed by <@${interaction.user.id}>!`, ephemeral: false });
         }
 
         if (id === 't_close') {
-            await interaction.reply({ content: '🔒 Closing ticket in 5 seconds...' });
+            await interaction.reply({ content: `${CONFIG.EMOJIS.CLOSE} Generez transcriptul automat și închid biletul în 5 secunde...` });
+            await generateAndSendTranscript(interaction.channel, interaction.user);
             setTimeout(() => interaction.channel.delete().catch(() => {}), 5000);
             return;
         }
 
         if (id === 't_ping_staff') {
-            return interaction.reply({ content: `<@&${CONFIG.STAFF_ROLE_ID}> Customer requires staff assistance!`, ephemeral: false });
+            return interaction.reply({ content: `${CONFIG.EMOJIS.PING} <@&${CONFIG.STAFF_ROLE_ID}> Customer requires staff assistance!`, ephemeral: false });
         }
 
         if (id === 't_add_user') {
@@ -311,7 +380,7 @@ client.on('interactionCreate', async (interaction) => {
             const buffer = Buffer.from(transcriptText, 'utf-8');
             const attachment = new AttachmentBuilder(buffer, { name: `transcript-${interaction.channel.name}.txt` });
 
-            return interaction.editReply({ content: '📋 Here is the ticket transcript:', files: [attachment] });
+            return interaction.editReply({ content: `${CONFIG.EMOJIS.TRANSCRIPT} Here is the manual ticket transcript:`, files: [attachment] });
         }
     }
 
@@ -327,14 +396,14 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('select_nitro_qty')
                     .setPlaceholder('Select Quantity')
                     .addOptions([
-                        { label: '1x Quantity', value: '1x' },
-                        { label: '2x Quantity', value: '2x' },
-                        { label: '3x Quantity', value: '3x' },
-                        { label: '4x Quantity', value: '4x' },
-                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică' }
+                        { label: '1x Quantity', value: '1x', emoji: '1️⃣' },
+                        { label: '2x Quantity', value: '2x', emoji: '2️⃣' },
+                        { label: '3x Quantity', value: '3x', emoji: '3️⃣' },
+                        { label: '4x Quantity', value: '4x', emoji: '4️⃣' },
+                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică', emoji: CONFIG.EMOJIS.CHANGE_QTY }
                     ])
             );
-            return interaction.update({ content: ` Selected: **${value}**. Now select the quantity:`, components: [row] });
+            return interaction.update({ content: `${CONFIG.EMOJIS.CHECK} Selected: **${value}**. Now select the quantity:`, components: [row] });
         }
 
         if (id === 'select_nitro_qty') {
@@ -356,11 +425,11 @@ client.on('interactionCreate', async (interaction) => {
                         .setCustomId('select_boost_duration')
                         .setPlaceholder('Select Boost Duration')
                         .addOptions([
-                            { label: '1 Month Duration', value: '1 Month' },
-                            { label: '3 Months Duration', value: '3 Months' }
+                            { label: '1 Month Duration', value: '1 Month', emoji: '📅' },
+                            { label: '3 Months Duration', value: '3 Months', emoji: '🗓️' }
                         ])
                 );
-                return interaction.update({ content: ' Select duration for your Server Boosts:', components: [row] });
+                return interaction.update({ content: `${CONFIG.EMOJIS.BOOST} Select duration for your Server Boosts:`, components: [row] });
             }
 
             return sendConfirmationSummary(interaction, session);
@@ -373,12 +442,12 @@ client.on('interactionCreate', async (interaction) => {
                     .setCustomId('select_boost_qty')
                     .setPlaceholder('Select Number of Boosts')
                     .addOptions([
-                        { label: '14x Boosts', value: '14x' },
-                        { label: '28x Boosts', value: '28x' },
-                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică' }
+                        { label: '14x Boosts', value: '14x', emoji: CONFIG.EMOJIS.BOOST },
+                        { label: '28x Boosts', value: '28x', emoji: CONFIG.EMOJIS.BOOST },
+                        { label: 'Custom Amount', value: 'custom', description: 'Deschide tastatura numerică', emoji: CONFIG.EMOJIS.CHANGE_QTY }
                     ])
             );
-            return interaction.update({ content: ' Select how many boosts you want:', components: [row] });
+            return interaction.update({ content: `${CONFIG.EMOJIS.BOOST} Select how many boosts you want:`, components: [row] });
         }
 
         if (id === 'select_boost_qty') {
@@ -403,7 +472,6 @@ client.on('interactionCreate', async (interaction) => {
             return sendPaymentMenu(interaction);
         }
 
-        // TICKET MODAL ACTIONS
         if (id === 'modal_ticket_add_user') {
             const targetId = interaction.fields.getTextInputValue('target_user_id');
             try {
@@ -412,9 +480,9 @@ client.on('interactionCreate', async (interaction) => {
                     SendMessages: true,
                     AttachFiles: true
                 });
-                return interaction.reply({ content: `✅ Added <@${targetId}> to this ticket.` });
+                return interaction.reply({ content: `${CONFIG.EMOJIS.CHECK} Added <@${targetId}> to this ticket.` });
             } catch (err) {
-                return interaction.reply({ content: '❌ Invalid User ID or missing permissions.', ephemeral: true });
+                return interaction.reply({ content: `${CONFIG.EMOJIS.CROSS} Invalid User ID or missing permissions.`, ephemeral: true });
             }
         }
 
@@ -422,9 +490,9 @@ client.on('interactionCreate', async (interaction) => {
             const targetId = interaction.fields.getTextInputValue('target_user_id');
             try {
                 await interaction.channel.permissionOverwrites.delete(targetId);
-                return interaction.reply({ content: `🚫 Removed <@${targetId}> from this ticket.` });
+                return interaction.reply({ content: `${CONFIG.EMOJIS.REMOVE_USER} Removed <@${targetId}> from this ticket.` });
             } catch (err) {
-                return interaction.reply({ content: '❌ Invalid User ID or missing permissions.', ephemeral: true });
+                return interaction.reply({ content: `${CONFIG.EMOJIS.CROSS} Invalid User ID or missing permissions.`, ephemeral: true });
             }
         }
 
@@ -438,17 +506,17 @@ client.on('interactionCreate', async (interaction) => {
 
                     const newEmbed = EmbedBuilder.from(oldEmbed).setDescription(updatedDescription);
                     await message.edit({ embeds: [newEmbed] });
-                    return interaction.reply({ content: `🛒 Order quantity updated to **${newQty}**!`, ephemeral: true });
+                    return interaction.reply({ content: `${CONFIG.EMOJIS.CART} Order quantity updated to **${newQty}**!`, ephemeral: true });
                 }
             } catch (err) {
-                return interaction.reply({ content: '❌ Could not update embed.', ephemeral: true });
+                return interaction.reply({ content: `${CONFIG.EMOJIS.CROSS} Could not update embed.`, ephemeral: true });
             }
         }
     }
 });
 
 // ==============================================================================
-// 7. HELPER FUNCTIONS
+// 8. HELPER FUNCTIONS
 // ==============================================================================
 async function sendPaymentMenu(interaction) {
     const row = new ActionRowBuilder().addComponents(
@@ -456,13 +524,13 @@ async function sendPaymentMenu(interaction) {
             .setCustomId('select_payment')
             .setPlaceholder('Select Payment Method')
             .addOptions([
-                { label: 'Bank Transfer', value: 'Bank Transfer' },
-                { label: 'PayPal', value: 'PayPal' },
-                { label: 'Crypto', value: 'Crypto' }
+                { label: 'Bank Transfer', value: 'Bank Transfer', emoji: '🏦' },
+                { label: 'PayPal', value: 'PayPal', emoji: '🅿️' },
+                { label: 'Crypto', value: 'Crypto', emoji: '🪙' }
             ])
     );
 
-    const payload = { content: '💳 Please select your preferred payment method:', embeds: [], components: [row] };
+    const payload = { content: `${CONFIG.EMOJIS.CARD} Please select your preferred payment method:`, embeds: [], components: [row] };
     
     if (interaction.isButton() && interaction.customId.startsWith('panel_')) {
         return interaction.reply({ ...payload, ephemeral: true });
@@ -475,7 +543,7 @@ async function sendPaymentMenu(interaction) {
 
 async function sendConfirmationSummary(interaction, session) {
     const embed = new EmbedBuilder()
-        .setTitle('🛒 Order Confirmation Summary')
+        .setTitle(`${CONFIG.EMOJIS.CART} Order Confirmation Summary`)
         .setColor(CONFIG.COLOR_PRIMARY)
         .addFields(
             { name: 'Category', value: `\`${session.category || 'N/A'}\``, inline: true },
@@ -489,14 +557,13 @@ async function sendConfirmationSummary(interaction, session) {
     if (session.budget) embed.addFields({ name: 'Budget', value: `\`${session.budget}\``, inline: true });
 
     const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('confirm_ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId('cancel_ticket').setLabel('Cancel').setStyle(ButtonStyle.Danger)
+        new ButtonBuilder().setCustomId('confirm_ticket').setLabel('Open Ticket').setStyle(ButtonStyle.Success).setEmoji(CONFIG.EMOJIS.CHECK),
+        new ButtonBuilder().setCustomId('cancel_ticket').setLabel('Cancel').setStyle(ButtonStyle.Danger).setEmoji(CONFIG.EMOJIS.CROSS)
     );
 
     return interaction.update({ content: 'Please review your selection before opening the ticket:', embeds: [embed], components: [row] });
 }
 
-// Create Ticket Channel & Send Embed with Direct Image URL
 async function executeTicketCreation(interaction, session) {
     const guild = interaction.guild;
     const user = interaction.user;
@@ -538,19 +605,19 @@ async function executeTicketCreation(interaction, session) {
     }
 
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_claim').setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji('🔔'),
-        new ButtonBuilder().setCustomId('t_transcript').setLabel('Transcript').setStyle(ButtonStyle.Secondary).setEmoji('📋')
+        new ButtonBuilder().setCustomId('t_claim').setLabel('Claim').setStyle(ButtonStyle.Primary).setEmoji(CONFIG.EMOJIS.CLAIM),
+        new ButtonBuilder().setCustomId('t_transcript').setLabel('Transcript').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.TRANSCRIPT)
     );
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_add_user').setLabel('Add User').setStyle(ButtonStyle.Secondary).setEmoji('👤'),
-        new ButtonBuilder().setCustomId('t_remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary).setEmoji('🚫')
+        new ButtonBuilder().setCustomId('t_add_user').setLabel('Add User').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.ADD_USER),
+        new ButtonBuilder().setCustomId('t_remove_user').setLabel('Remove User').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.REMOVE_USER)
     );
     const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_change_qty').setLabel('Change Quantity').setStyle(ButtonStyle.Secondary).setEmoji('🛒'),
-        new ButtonBuilder().setCustomId('t_ping_staff').setLabel('Ping Staff').setStyle(ButtonStyle.Secondary).setEmoji('🔔')
+        new ButtonBuilder().setCustomId('t_change_qty').setLabel('Change Quantity').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.CHANGE_QTY),
+        new ButtonBuilder().setCustomId('t_ping_staff').setLabel('Ping Staff').setStyle(ButtonStyle.Secondary).setEmoji(CONFIG.EMOJIS.PING)
     );
     const row4 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('t_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji('🔒')
+        new ButtonBuilder().setCustomId('t_close').setLabel('Close Ticket').setStyle(ButtonStyle.Danger).setEmoji(CONFIG.EMOJIS.CLOSE)
     );
 
     await channel.send({ 
@@ -562,13 +629,13 @@ async function executeTicketCreation(interaction, session) {
     userSessions.delete(user.id);
 
     return interaction.update({ 
-        content: `✅ Your ticket has been created: ${channel}`, 
+        content: `${CONFIG.EMOJIS.CHECK} Your ticket has been created: ${channel}`, 
         embeds: [], 
         components: [] 
     });
 }
 
 // ==============================================================================
-// 8. BOT LOGIN
+// 9. BOT LOGIN
 // ==============================================================================
 client.login(process.env.DISCORD_TOKEN);
